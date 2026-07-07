@@ -49,6 +49,7 @@ class SensorState:
     night: bool = False          # ECU day/night mode (night = dim the display)
     battery: float = 0.0         # battery voltage (V)
     fuel_level: float = 0.0      # %
+    ethanol: float = 0.0         # flex-fuel ethanol content (%) from the FuelTech flex sensor
     # exhaust gas temperature, per cylinder (°C) — fed by the EGT-4 CAN module
     egt1: float = 0.0
     egt2: float = 0.0

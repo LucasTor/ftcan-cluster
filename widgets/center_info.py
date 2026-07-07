@@ -81,8 +81,11 @@ class CenterInfo(Widget):
         ("oil",     "OIL",    "{:.1f} BAR", None,              None),
         ("egtavg",  "EGT",    "{:.0f} °C",  lambda v: v > 750, TT_RED),
         ("fpress",  "FUEL P", "{:.1f} BAR", None,              None),
-        ("fuel",    "FUEL",   "{:.0f} %",   None,              None),
+        ("fuel",    "LEVEL",  "{:.0f} %",   None,              None),
         ("oiltemp", "OIL T",  "{:.0f} °C",  lambda v: v > 120, TT_RED),
+        # Flex-fuel ethanol content, shown as an "E85"-style blend in the slot
+        # where GEAR used to be (gear needs a position sensor we don't read).
+        ("ethanol", "FUEL",   "E{:.0f}",    None,              None),
     ]
 
     def __init__(self, **kwargs):
@@ -108,8 +111,6 @@ class CenterInfo(Widget):
         self.vbox.add_widget(grid)
         for key, label, fmt, warn, warn_color in self.MICRO_FIELDS:
             grid.add_widget(self._micro_cell(key, label, fmt, warn, warn_color))
-        gear_cell, self.gear_value = self._cell("GEAR", "N")
-        grid.add_widget(gear_cell)
 
         # --- EGT balance row: 4 cylinder dots + temps (green in balance, red as
         #     a channel deviates from the group median) ---
@@ -260,15 +261,14 @@ class CenterInfo(Widget):
 
     def set_values(self, intake_c=None, water_c=None, oil_press_bar=None,
                    lambda_val=None, boost_bar=None, fuel_level=None,
-                   fuel_press_bar=None, gear=None, rpm=None, oil_temp=None):
+                   fuel_press_bar=None, ethanol=None, rpm=None, oil_temp=None):
         self.readouts["air"].set(intake_c)
         self.readouts["engine"].set(water_c)
         self.readouts["oil"].set(oil_press_bar)
         self.readouts["oiltemp"].set(oil_temp)
         self.readouts["fpress"].set(fuel_press_bar)
         self.readouts["fuel"].set(fuel_level)
-        if gear is not None:
-            self.gear_value.text = str(gear)
+        self.readouts["ethanol"].set(ethanol)
 
         if boost_bar is not None:
             self.boost_value.text = f"{boost_bar:.2f}"

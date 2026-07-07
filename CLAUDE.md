@@ -87,15 +87,16 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
   **We do NOT read this yet.** Fan, 2-step/launch, and ECU output states only live here.
   - **2-step / launch:** `DataID 0x0007` "ECU Launch Mode" (nonzero = a launch mode armed), or
     `DataID 0x0048` "2 Step Signal" (Note 7 = 0:off/1:on).
-  - **Radiator fan:** there is no "fan" measure — fan is whichever ECU **output** it's assigned to,
-    reported in an **outputs bitmask** (Note 9: bit N = Output N+1 on). You need the owner to tell
-    you which output number is the fan.
+  - **Radiator fan:** read via the dedicated `DataID 0x004D` "ECU Eletro Fan" measure (Note 7 =
+    0:off/1:on) → `SensorState.radiator_fan`. (The fan is physically wired to gray output 3, but the
+    ECU's electro-fan function reports its state on this measure regardless of output.) An alternative
+    source is the **Generic outputs state** bitmask `DataID 0x0152` (Note 9: bit N = Output N+1 on).
 
 ## In-flight / TODO
 
-- **Fan + 2-step tell-tales:** model fields (`SensorState.two_step`, `.radiator_fan`) and the UI
-  (FAN pill, 2-STEP wired) exist, but **no CAN source feeds them yet** — needs a tagged-broadcast
-  reader in `can_helper.py` and the fan's output number. Until then both pills stay dark.
+- **Fan + 2-step tell-tales:** now fed by the tagged-broadcast reader in `can_helper.py`
+  (`DATAID_LAUNCH 0x0008` → `two_step`, `DATAID_FAN 0x004D` "ECU Eletro Fan" → `radiator_fan`).
+  Both still need a live verify on the car to confirm the ECU actually broadcasts them.
 - **GPIO pin map is being discovered** by the owner via `./logs.sh gpio` (toggle a switch, see
   which GPIO logs `-> ON`). Known: `HIGH_BEAM=6, LEFT_INDICATOR=21, RIGHT_INDICATOR=16, CHOKE=13,
   PARKING_BRAKE=5`; `B=20, D=19, E=26` still unknown. `PARKING_BRAKE` → BRAKE pill, `HIGH_BEAM` →

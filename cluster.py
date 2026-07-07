@@ -28,7 +28,8 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.core.text import LabelBase, DEFAULT_FONT
 
-from widgets import CenterInfo, Gauge, TopAlerts, AlarmBar, NightDim
+from widgets import TopAlerts, AlarmBar, NightDim
+from widgets.layouts import LAYOUTS
 from model import SensorState
 from demo import simulate
 
@@ -38,48 +39,8 @@ kivy.require("2.0.0")
 # Configuration Constants
 # ============================================================================
 
-# Gauge configuration
-SPEED_GAUGE_CONFIG = {
-    'title': "SPEED",
-    'subtitle': "KM/H",
-    'max_value': 240,
-    'unit': "km/h",
-    'size': (600, 600),
-    'pos': (60, 60),
-    'ticks': 13,
-    'angle_range': 270,
-}
-
-def _rpm_text(v):
-    """Full number below 1000 rpm, compact 'x.xk' at/above 1000."""
-    v = int(v)
-    return str(v) if v < 1000 else f"{v / 1000:.1f}k"
-
-
-RPM_GAUGE_CONFIG = {
-    'title': "RPM",
-    'subtitle': "X1000",
-    'max_value': 8000,
-    'unit': "rpm",
-    'size': (600, 600),
-    'pos': (1260, 60),
-    'ticks': 9,
-    'redline_from': 5500,
-    'value_formatter': _rpm_text,
-    'label_map': {
-        1000: "1",
-        2000: "2",
-        3000: "3",
-        4000: "4",
-        5000: "5",
-        6000: "6",
-        7000: "7",
-        8000: "8",
-    },
-}
-
-# Shift light: flash the RPM gauge above this engine speed
-SHIFT_RPM_THRESHOLD = 6000
+# Startup layout: which registered layout to show first (name or index).
+STARTUP_LAYOUT = os.environ.get("LAYOUT", "0")
 
 # Critical alarm thresholds (the bottom red banner)
 ALARM_LEAN_LAMBDA = 1.05       # lean mixture
@@ -111,76 +72,67 @@ LabelBase.register(DEFAULT_FONT, "fonts/Compagnon-Medium.otf")
 # Dashboard Widget
 # ============================================================================
 
+def _startup_index():
+    """Resolve STARTUP_LAYOUT (a name or an index string) to a layout index."""
+    names = [cls.name for cls in LAYOUTS]
+    if STARTUP_LAYOUT in names:
+        return names.index(STARTUP_LAYOUT)
+    try:
+        return int(STARTUP_LAYOUT) % len(LAYOUTS)
+    except (ValueError, ZeroDivisionError):
+        return 0
+
+
 class Dashboard(Widget):
-    """Main dashboard widget containing all gauge and info displays."""
+    """Host: shows one swappable content layout under the global overlays
+    (tell-tales, alarm banner, night dim) and delegates ``update`` to it.
+
+    The active layout is switched with :meth:`next_layout` — bound to the ``L``
+    key for bench/dev; wire it to a GPIO button (or a FuelTech CAN dash button)
+    on the car. All layouts are built once up front so switching is instant and
+    never re-triggers the gauges' startup sweep."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self._setup_gauges()
-        self._setup_center_info()
-        self._setup_top_alerts()
-        self._setup_night_dim()
-        self._setup_alarms()
+        self.layouts = [cls() for cls in LAYOUTS]
+        self.active = _startup_index()
+        self.add_widget(self.layouts[self.active])
+
+        # global overlays — added after the layout so they draw on top and
+        # persist across every switch
+        self.top_alerts = TopAlerts()
+        self.add_widget(self.top_alerts)
+        self.night_dim = NightDim()
+        self.add_widget(self.night_dim)
+        self.alarm_bar = AlarmBar()
+        self.add_widget(self.alarm_bar)
+
+        Window.bind(on_key_down=self._on_key)
 
         if DEV:
             Window.size = (WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2)
 
-    def _setup_gauges(self):
-        """Initialize speed and RPM gauges."""
-        self.speed_gauge = Gauge(**SPEED_GAUGE_CONFIG)
-        self.add_widget(self.speed_gauge)
+    def next_layout(self):
+        """Advance to the next registered layout (wraps around)."""
+        self.remove_widget(self.layouts[self.active])
+        self.active = (self.active + 1) % len(self.layouts)
+        # re-insert the content beneath the overlays (end of the children list)
+        self.add_widget(self.layouts[self.active], index=len(self.children))
 
-        self.rpm_gauge = Gauge(**RPM_GAUGE_CONFIG)
-        self.add_widget(self.rpm_gauge)
-
-    def _setup_center_info(self):
-        """Initialize center information display."""
-        self.center_info = CenterInfo()
-        self.add_widget(self.center_info)
-
-    def _setup_top_alerts(self):
-        """Initialize the top tell-tale alert row (turn signals, warnings, etc.)."""
-        self.top_alerts = TopAlerts()
-        self.add_widget(self.top_alerts)
-
-    def _setup_night_dim(self):
-        """Night dimming veil (below the alarm banner so alarms stay bright)."""
-        self.night_dim = NightDim()
-        self.add_widget(self.night_dim)
-
-    def _setup_alarms(self):
-        """Critical alarm banner (bottom). Added last so it sits on top."""
-        self.alarm_bar = AlarmBar()
-        self.add_widget(self.alarm_bar)
+    def _on_key(self, _window, key, _scancode, codepoint, _modifiers):
+        if codepoint == "l":            # 'L' cycles layouts (dev / bench)
+            self.next_layout()
+            return True
 
     def update(self, state):
-        """
-        Update all dashboard displays from the shared sensor state.
+        """Update the active layout from shared state, plus the global overlays.
 
         Args:
             state: A ``SensorState`` instance, continuously updated by the CAN
                 and GPIO reader threads (see model.py for the full schema).
         """
-        self.rpm_gauge.update_value(state.rpm)
-        self.speed_gauge.update_value(state.wheel_speed_fl_kmh)
-
-        self.rpm_gauge.set_shift(state.rpm >= SHIFT_RPM_THRESHOLD)
-
-        self.center_info.set_values(
-            intake_c=state.air_temp,
-            water_c=state.engine_temp,
-            oil_press_bar=state.oil_pressure_bar,
-            lambda_val=state.lambda_afr,
-            boost_bar=max(0.0, state.map),  # boost only; vacuum clamps to 0.00
-            fuel_level=state.fuel_level,
-            fuel_press_bar=state.fuel_pressure_bar,
-            gear=state.gear_label,
-            rpm=state.rpm,
-            oil_temp=state.oil_temp,
-        )
-        self.center_info.set_egt((state.egt1, state.egt2, state.egt3, state.egt4))
-
+        self.layouts[self.active].update(state)
         self.top_alerts.set_state(state)
         self.night_dim.set_night(state.night)
         self.alarm_bar.set_alarms(self._alarms(state))

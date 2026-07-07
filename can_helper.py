@@ -41,11 +41,17 @@ MEASURE_MAP = {
     0x0027: ("lambda_afr", 0.001),          # general Exhaust O2 (from the wideband)
     0x0042: ("rpm", 1),
     0x008C: ("oil_temp", 0.1),
+    # Flex-fuel ethanol content (%). "Fuel Ethanol Percentage", DataID 0x021C,
+    # broadcast by the ECU at 10Hz. Added late to FTCAN 2.0 (protocol revision 043,
+    # 2026-07-06 — absent from the older Protocol_FTCAN20.pdf whose table ends at
+    # 0x024C), which is why earlier captures/dumps couldn't surface it.
+    0x021C: ("ethanol", 0.1),
 }
 
 # Status / special DataIDs handled below in _apply().
 DATAID_GEAR = 0x0011        # signed gear (Note 2)
 DATAID_LAUNCH = 0x0008      # ECU launch mode (2-step / 3-step / burnout): nonzero = armed
+DATAID_FAN = 0x004D         # ECU Eletro Fan (Note 7: 0 = off, 1 = on)
 DATAID_DAYNIGHT = 0x007D    # day/night (tentative — verify live; 1 = night)
 
 GEAR_LABEL = {-2: "P", -1: "R", 0: "N", 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
@@ -103,6 +109,8 @@ def _apply(state, measures):
             updates["gear_label"] = GEAR_LABEL.get(val, str(val))
         elif did == DATAID_LAUNCH:
             updates["two_step"] = (val != 0)
+        elif did == DATAID_FAN:
+            updates["radiator_fan"] = (val != 0)
         elif did == DATAID_DAYNIGHT:
             updates["night"] = (val == 1)
     if updates:
@@ -161,7 +169,8 @@ def read_can(interface="socketcan", channel="can0", state=None):
 
 # --- Discovery logger: dump unmapped real-time measures (find fan, day/night) ---
 RT_NAMES = {did: f[0] for did, f in MEASURE_MAP.items()}
-RT_NAMES.update({DATAID_GEAR: "gear", DATAID_LAUNCH: "launch/2step", DATAID_DAYNIGHT: "day/night?"})
+RT_NAMES.update({DATAID_GEAR: "gear", DATAID_LAUNCH: "launch/2step",
+                 DATAID_FAN: "radiator_fan", DATAID_DAYNIGHT: "day/night?"})
 
 
 def log_realtime(interface="socketcan", channel="can0"):
