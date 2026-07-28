@@ -81,8 +81,10 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
 - We currently read only the **simplified broadcast** (4 fixed frames `0x14080600..0x14080603`,
   extended IDs) in `can_helper.py`. These carry TPS/MAP/temps/pressures/gear/lambda/RPM/oil-temp/
   pit-limit/wheel-speeds. That's it.
-- The protocol spec (`Protocol_FTCAN20.pdf`, image-only — render with `pdftoppm -png` and Read the
-  PNGs) also defines a **real-time *tagged* broadcast** (MessageID `0x_FF`, frame IDs like
+- The protocol spec (`Protocol_FTCAN20.pdf`, has a text layer — extract with PyMuPDF/`fitz`,
+  `page.get_text()`; this copy's DataID table is longer than the older repo one, reaching
+  `0x0290 Vehicle Speed`, brake temps, TPMS) also defines a **real-time *tagged* broadcast**
+  (MessageID `0x_FF`, frame IDs like
   `0x140011FF`) where each measure is `MeasureID(2B)+Value(2B)`, `MeasureID = (DataID<<1)|statusbit`.
   **We do NOT read this yet.** Fan, 2-step/launch, and ECU output states only live here.
   - **2-step / launch:** `DataID 0x0007` "ECU Launch Mode" (nonzero = a launch mode armed), or
@@ -91,6 +93,14 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
     0:off/1:on) → `SensorState.radiator_fan`. (The fan is physically wired to gray output 3, but the
     ECU's electro-fan function reports its state on this measure regardless of output.) An alternative
     source is the **Generic outputs state** bitmask `DataID 0x0152` (Note 9: bit N = Output N+1 on).
+- **The sender is identifiable per frame:** bits 28–14 of the 29-bit arbitration ID are the
+  ProductID (`(ProductTypeID << 5) | unique`, so `arbitration_id >> 19` = ProductTypeID). When two
+  devices broadcast the same DataID, gate on the sender via `SOURCE_GATE` in `can_helper.py`
+  (DataID → required ProductTypeID). Used for **fuel level** (`DataID 0x0281`, %×10 by our own
+  convention — the spec's unit is TBD): the owner's ESP32 sender at ProductID `0x7F00`
+  (ProductTypeID `0x03F8`, CAN ID `0x1FC003FF`, 10 Hz, DLC 4) is the trusted source; the spec
+  lists the same DataID as a PowerFT ECU measure, which the gate drops. `log_realtime()` prints
+  each measure's sender ProductID for discovery.
 
 ## In-flight / TODO
 

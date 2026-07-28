@@ -40,7 +40,7 @@ kivy.require("2.0.0")
 # ============================================================================
 
 # Startup layout: which registered layout to show first (name or index).
-STARTUP_LAYOUT = os.environ.get("LAYOUT", "0")
+STARTUP_LAYOUT = os.environ.get("LAYOUT", "detail")
 
 # Critical alarm thresholds (the bottom red banner)
 ALARM_LEAN_LAMBDA = 1.05       # lean mixture

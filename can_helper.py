@@ -46,6 +46,15 @@ MEASURE_MAP = {
     # 2026-07-06 — absent from the older Protocol_FTCAN20.pdf whose table ends at
     # 0x024C), which is why earlier captures/dumps couldn't surface it.
     0x021C: ("ethanol", 0.1),
+    0x0281: ("fuel_level", 0.1),            # % (our ESP32 sender; unit TBD in the spec)
+}
+
+# DataID -> required sender ProductTypeID (arbitration_id >> 19). The spec also lists
+# 0x0281 "Fuel Level" as a PowerFT ECU measure, so without this gate the ECU's own
+# (unconnected) fuel reading would fight our ESP32's. 0x03F8 = ProductID 0x7F00..0x7F1F,
+# top of the low-priority range, where our fuel-level sender lives.
+SOURCE_GATE = {
+    0x0281: 0x03F8,
 }
 
 # Status / special DataIDs handled below in _apply().
@@ -95,12 +104,14 @@ def _decode(cid, data, seg):
     return out
 
 
-def _apply(state, measures):
+def _apply(state, measures, product_type=None):
     """Map decoded measures into a SensorState update (stamps the CAN clock)."""
     updates = {}
     for mid, raw in measures:
         did = mid >> 1
         val = _signed(raw)
+        if did in SOURCE_GATE and product_type != SOURCE_GATE[did]:
+            continue
         if did in MEASURE_MAP:
             field, scale = MEASURE_MAP[did]
             updates[field] = val * scale
@@ -160,7 +171,8 @@ def read_can(interface="socketcan", channel="can0", state=None):
             if msg.arbitration_id == EGT4_ID:
                 state.update(_decode_egt4(msg.data))
                 continue
-            _apply(state, _decode(msg.arbitration_id, msg.data, seg))
+            _apply(state, _decode(msg.arbitration_id, msg.data, seg),
+                   product_type=msg.arbitration_id >> 19)
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
@@ -189,16 +201,17 @@ def log_realtime(interface="socketcan", channel="can0"):
             msg = bus.recv(timeout=1.0)
             if msg is None:
                 continue
+            product_id = msg.arbitration_id >> 14
             for mid, raw in _decode(msg.arbitration_id, msg.data, seg):
                 did = mid >> 1
                 now = time.monotonic()
-                prev = last.get(did)
+                prev = last.get((product_id, did))
                 if prev and prev[0] == raw and now - prev[1] < 1.5:
                     continue
-                last[did] = (raw, now)
+                last[(product_id, did)] = (raw, now)
                 name = RT_NAMES.get(did, "")
-                print(f"[canrt] DataID=0x{did:04X} {name} = {_signed(raw)} (0x{raw:04X})",
-                      flush=True)
+                print(f"[canrt] ProductID=0x{product_id:04X} DataID=0x{did:04X} {name}"
+                      f" = {_signed(raw)} (0x{raw:04X})", flush=True)
     except Exception as e:
         print("[canrt] error:", e, flush=True)
     finally:

@@ -23,7 +23,7 @@ RING_R = 190          # ring centreline radius
 RING_W = 128          # ring thickness (wide — fills from the hub to the rim)
 NUM_R = 236           # numbers sit near the outer edge of the ring band
 HUB_R = 128           # big black hub (holds the gear) — ~half the outer radius
-SEGS = 220            # angular segments across the number span (fade smoothness)
+SEGS = 500            # angular segments across the number span (fade smoothness)
 FADE_RPM = 700        # rpm over which the whole trail switches cyan -> red
 
 NUM_FONT = "fonts/Compagnon-Medium.otf"   # same font as the side tiles
@@ -38,6 +38,13 @@ NUM_OUTLINE = (1.0, 1.0, 1.0, 1.0)
 NEEDLE_COL = (0.04, 0.04, 0.05, 1.0)
 NEEDLE_EDGE = (1.0, 1.0, 1.0, 0.92)
 GEAR_COL = (0.98, 0.99, 1.0, 1.0)
+
+# redline transition keyframes (see _hue): cyan brightens to pale gold, then
+# ignites through orange to red. A direct cyan->red lerp muddies to grey-brown,
+# and a white bridge vanishes against the white ring — gold stays visible.
+PALE_GOLD = (1.0, 0.85, 0.45, 1.0)
+ORANGE = (1.0, 0.55, 0.02, 1.0)
+HUE_STOPS = [(0.0, CYAN), (0.35, PALE_GOLD), (0.7, ORANGE), (1.0, RED)]
 
 INTRO_SWEEP_AT = 2.5
 INTRO_RESET_AT = 3.9
@@ -113,11 +120,15 @@ class BigDial(Widget):
             lbl.text_size = lbl.size
             self.add_widget(lbl)
 
-        # gear in the hub
-        self._gear = Label(text="N", font_name=NUM_FONT, font_size="150sp", bold=True,
+        # gear in the hub. Compagnon's line box is bottom-heavy, so a "middle"
+        # valign draws the glyph ~0.14em below the visual centre — lift the
+        # label to compensate (measured on a rendered capture).
+        gear_fs = 150
+        self._gear = Label(text="N", font_name=NUM_FONT, font_size=f"{gear_fs}sp",
+                          bold=True,
                           color=GEAR_COL, halign="center", valign="middle",
                           size_hint=(None, None), size=(2 * HUB_R, 2 * HUB_R),
-                          pos=(cx - HUB_R, cy - HUB_R))
+                          pos=(cx - HUB_R, cy - HUB_R + round(0.143 * gear_fs)))
         self._gear.text_size = self._gear.size
         self.add_widget(self._gear)
 
@@ -129,7 +140,11 @@ class BigDial(Widget):
         if rpm <= self.redline_from:
             return CYAN
         t = min(1.0, (rpm - self.redline_from) / FADE_RPM)
-        return _lerp(CYAN, RED, t)
+        # keyframed blend through pale gold and orange (see HUE_STOPS).
+        for (t0, c0), (t1, c1) in zip(HUE_STOPS, HUE_STOPS[1:]):
+            if t <= t1:
+                return _lerp(c0, c1, (t - t0) / (t1 - t0))
+        return RED
 
     def update_value(self, v, update_label=True):
         self.value = max(0.0, min(v, self.max_value))

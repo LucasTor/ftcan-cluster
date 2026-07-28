@@ -56,7 +56,7 @@ class StatTile(Widget):
                            size_hint=(None, None), size=(w, 26), pos=(x, top - 34))
         value_pos = (x, y + BAR_H + 22) if bar else (x, y + 8)
         value_h = (h - BAR_H - 56) if bar else (h - 42)
-        self._value = Label(text="—", font_size="72sp", bold=True, color=VALUE_COL,
+        self._value = Label(text="—", font_size="78sp", bold=True, color=VALUE_COL,
                            halign="center", valign="middle", size_hint=(None, None),
                            size=(w, value_h), pos=value_pos)
         labels = [self._label, self._value]
