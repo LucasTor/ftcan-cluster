@@ -11,17 +11,21 @@ Each layout is a plain ``Widget`` that builds its own children and exposes
 
   * ``StreetLayout``  — the minimal twin-dial view (SPEED + RPM + centre card).
   * ``DetailLayout``  — a dense RPM-dial + 4x3 stat-tile grid (GhostDash style).
+  * ``MapLayout``     — perspective street map of São Marcos at the car's GPS
+    position (mocked by ``gps_helper`` until the USB module arrives).
 """
 
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.graphics import Color, Ellipse
 
-from theme import TT_RED, TT_AMBER
+from theme import (TT_RED, TT_AMBER, FONT_MONO, FONT_LIGHT, GAUGE_CENTER,
+                   LABEL_ACCENT, LABEL_DIM)
 from .gauge import Gauge
 from .big_dial import BigDial
 from .center_info import CenterInfo
 from .stat_tile import StatTile
+from .map_view import MapView
 
 
 # Shift light: flash the RPM gauge above this engine speed.
@@ -211,4 +215,51 @@ class DetailLayout(Widget):
             c.rgba = _led_color(i, n) if i < lit else _LED_OFF
 
 
-LAYOUTS = [StreetLayout, DetailLayout]
+_CARDINALS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
+def _hud_label(text, font, size_sp, color, pos, size, halign):
+    lbl = Label(text=text, font_name=font, font_size=f"{size_sp}sp", color=color,
+                halign=halign, valign="middle", size_hint=(None, None),
+                size=size, pos=pos)
+    lbl.text_size = lbl.size
+    return lbl
+
+
+class MapLayout(Widget):
+    """Perspective map + a minimal HUD: GPS speed (bottom-left), compass
+    heading (top-right), raw coordinates (bottom-right)."""
+
+    name = "map"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.map = MapView()
+        self.add_widget(self.map)
+
+        self._speed = _hud_label("0", FONT_LIGHT, 130, GAUGE_CENTER,
+                                 (60, 100), (320, 150), "left")
+        self.add_widget(self._speed)
+        self.add_widget(_hud_label("KM/H", FONT_MONO, 20, LABEL_ACCENT,
+                                   (64, 72), (320, 24), "left"))
+        self._compass = _hud_label("N 000°", FONT_MONO, 26, LABEL_ACCENT,
+                                   (1920 - 260 - 48, 720 - 60 - 30), (260, 30), "right")
+        self.add_widget(self._compass)
+        self._coords = _hud_label("", FONT_MONO, 17, LABEL_DIM,
+                                  (1920 - 420 - 48, 78), (420, 22), "right")
+        self.add_widget(self._coords)
+
+    def update(self, state):
+        self.map.update(state)
+        # wheel speed is the trusted speed source (GPS speed lags and drops out)
+        self._speed.text = f"{int(round(state.wheel_speed_fl_kmh))}"
+        hdg = state.heading_deg % 360
+        card = _CARDINALS[int((hdg + 22.5) // 45) % 8]
+        self._compass.text = f"{card} {hdg:03.0f}°"
+        if state.lat or state.lon:
+            self._coords.text = f"{state.lat:.5f}  {state.lon:.5f}"
+        else:
+            self._coords.text = "NO GPS"
+
+
+LAYOUTS = [StreetLayout, DetailLayout, MapLayout]

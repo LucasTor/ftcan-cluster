@@ -102,6 +102,29 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
   lists the same DataID as a PowerFT ECU measure, which the gate drops. `log_realtime()` prints
   each measure's sender ProductID for discovery.
 
+## The map layout (third layout, `map`)
+
+- **NFS-style perspective street map** of São Marcos - RS at the car's GPS position:
+  heading-up, car chevron fixed near the bottom, glowing tapered road ribbons (Kivy `Mesh`
+  triangle strips — `Line` can't taper, and band approximations show visible steps). Pieces:
+  `widgets/map_view.py` (roads/fog/marker), `gps_helper.py` (position feed), `map_data.json`
+  (baked offline road data — the Pi has no internet). A satellite ground-texture layer
+  (`ground_fx.py` + `map_texture.jpg`) was built and then removed at the owner's request
+  (didn't like it); it's in this repo's session history if ever wanted again.
+- **Position source:** `gps_helper.read_gps` thread. With no USB GPS present it mock-drives a
+  real route across town; when a NMEA module appears at `GPS_DEV` (default `/dev/ttyACM0`) it
+  hot-switches to parsing `RMC` sentences. It writes `lat/lon/heading_deg/gps_speed_kmh`
+  directly into `SensorState` fields (NOT via `state.update()` — that would stamp the CAN
+  clock and kill no-CAN demo detection). The map HUD's speed is `wheel_speed_fl_kmh` (owner:
+  wheel speed is the trusted source).
+- **Baked data:** OSM roads (Overpass, clipped to 2.5 km radius, Douglas-Peucker'd, unnamed
+  <30 m residential stubs demoted to "service" class — they're real half-mapped street
+  entrances). Bake script lives in the session scratchpad; re-baking needs internet on the
+  Mac. Projection origin -28.970008, -51.071114; local metres via equirectangular.
+- **Perf:** every frame rebuilds ~600-900 meshes (cores + 2 glow layers). The journal gets
+  `[map] redraw avg X.Xms over 600 frames` every ~20 s — check it after deploying map changes;
+  glow layers are the first knob if the Pi can't hold 30 fps.
+
 ## In-flight / TODO
 
 - **Fan + 2-step tell-tales:** now fed by the tagged-broadcast reader in `can_helper.py`

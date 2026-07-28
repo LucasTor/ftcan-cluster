@@ -40,7 +40,7 @@ kivy.require("2.0.0")
 # ============================================================================
 
 # Startup layout: which registered layout to show first (name or index).
-STARTUP_LAYOUT = os.environ.get("LAYOUT", "detail")
+STARTUP_LAYOUT = os.environ.get("LAYOUT", "map")
 
 # Critical alarm thresholds (the bottom red banner)
 ALARM_LEAN_LAMBDA = 1.05       # lean mixture
@@ -234,7 +234,12 @@ def run_cluster(state):
 
 if __name__ == "__main__":
     print(f"Window size: {Window.size}")
-    
+
+    # Standalone run (no start_cluster.py): feed the map layout's position from
+    # the GPS thread as well — mock drive, or a real USB module if present.
+    from threading import Thread
+    from gps_helper import read_gps
+
     # Sample data for testing
     state = SensorState(
         wheel_speed_fl_kmh=63,
@@ -247,4 +252,5 @@ if __name__ == "__main__":
         fuel_level=68,
     )
 
+    Thread(target=read_gps, args=(state,), daemon=True).start()
     run_cluster(state)

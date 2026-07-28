@@ -55,6 +55,11 @@ class SensorState:
     egt2: float = 0.0
     egt3: float = 0.0
     egt4: float = 0.0
+    # GPS position (USB GPS module; mocked by gps_helper until it arrives)
+    lat: float = 0.0             # WGS84 decimal degrees (0 = no fix yet)
+    lon: float = 0.0
+    heading_deg: float = 0.0     # course over ground, ° clockwise from true north
+    gps_speed_kmh: float = 0.0   # ground speed from GPS
     # wheel speeds (km/h)
     wheel_speed_fr_kmh: float = 0.0
     wheel_speed_fl_kmh: float = 0.0
