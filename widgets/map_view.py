@@ -46,6 +46,9 @@ FOG_Y0, FOG_Y1 = 400, 535   # fog gradient band (transparent -> solid BG)
 VIEW_AHEAD = 200.0      # view-circle centre this far ahead of the car
 VIEW_R = 540.0          # view-circle radius for bbox culling
 SERVICE_R = 260.0       # service alleys drawn only within this range
+CELL = 1000.0           # spatial-index cell size (m): per-frame culling only
+                        # walks roads in cells near the view, so cost tracks
+                        # local density, not total map size (25x25 km)
 
 POSE_SMOOTH = 0.30      # per-frame exponential approach factor
 
@@ -94,6 +97,12 @@ class MapView(Widget):
         self._roads = sorted(
             ((r["c"], r["p"], self._bbox(r["p"])) for r in data["roads"]),
             key=lambda r: -r[0])
+        # spatial index: cell -> road indices whose bbox overlaps the cell
+        self._cells = {}
+        for i, (_cls, _pts, bb) in enumerate(self._roads):
+            for cx in range(int(bb[0] // CELL), int(bb[2] // CELL) + 1):
+                for cy in range(int(bb[1] // CELL), int(bb[3] // CELL) + 1):
+                    self._cells.setdefault((cx, cy), []).append(i)
 
         self._e = self._n = 0.0     # displayed pose (m from origin / degrees)
         self._hdg = 0.0
@@ -202,10 +211,23 @@ class MapView(Widget):
         g = self._lines
         g.clear()
 
+        # candidate roads from the spatial index (view circle fully covers the
+        # service-range circle around the car, so one lookup serves both)
+        seen = set()
+        cand = []
+        for cx in range(int((ce - VIEW_R) // CELL), int((ce + VIEW_R) // CELL) + 1):
+            for cy in range(int((cn - VIEW_R) // CELL), int((cn + VIEW_R) // CELL) + 1):
+                for i in self._cells.get((cx, cy), ()):
+                    if i not in seen:
+                        seen.add(i)
+                        cand.append(i)
+        cand.sort()   # index order = minor-first draw order
+
         # cull + transform + clip once (already sorted minor-first at load so
         # major roads draw on top within each pass)
         drawlist = []
-        for cls, pts, bb in self._roads:
+        for i in cand:
+            cls, pts, bb = self._roads[i]
             if cls == 3:
                 if self._bbox_dist2(bb, e, n) > SERVICE_R * SERVICE_R:
                     continue

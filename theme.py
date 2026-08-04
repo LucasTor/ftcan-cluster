@@ -15,7 +15,7 @@ INDICATOR_OFF = (0.1, 0.1, 0.1, 1.0)     # turn indicator inactive
 REDLINE = (1.0, 0.0, 0.0, 0.5)           # gauge redline arc
 
 # --- Minimal "Painel Gol" theme (dark, Azul Boreal accent) ---
-BG = (0.039, 0.043, 0.051, 1.0)          # #0a0b0d page background
+BG = (0.0, 0.0, 0.0, 1.0)                # pure-black page background (contrast)
 TEXT = (0.925, 0.933, 0.949, 1.0)        # #eceef2 primary text
 VALUE = (1.0, 1.0, 1.0, 0.82)            # default readout value
 LABEL_DIM = (0.353, 0.651, 0.918, 0.70)  # micro-grid labels (accent)
@@ -53,7 +53,7 @@ ALARM_BG = (0.86, 0.07, 0.05, 1.0)         # vivid red banner
 ALARM_TEXT = (1.0, 1.0, 1.0, 1.0)          # white alarm text
 
 # minimal gauge styling (Azul Boreal accent leans heavier on the blue)
-GAUGE_FACE = (0.063, 0.082, 0.122, 1.0)    # dark blue-tinted dial face
+GAUGE_FACE = (0.0, 0.0, 0.0, 1.0)          # pure-black dial face (ring separates)
 GAUGE_RING = (0.353, 0.651, 0.918, 0.28)   # blue disc edge ring
 GAUGE_TICK = (0.667, 0.804, 0.945, 0.92)   # major ticks (cool white-blue)
 GAUGE_TICK_MINOR = (0.353, 0.651, 0.918, 0.28)  # minor ticks (faint blue)
@@ -71,6 +71,7 @@ GAUGE_UNIT = (0.353, 0.651, 0.918, 0.40)   # km/h / x1000 unit (faint accent)
 # fonts (paths are usable directly as Kivy `font_name`)
 FONT_MONO = "fonts/ShareTechMono-Regular.ttf"   # labels / units
 FONT_LIGHT = "fonts/Compagnon-Light.otf"        # big numerals (light weight)
+FONT_ICONS = "fonts/materialdesignicons-webfont.ttf"  # tell-tale glyphs (MDI)
 
 # --- Window ---
 WINDOW_WIDTH = 1920

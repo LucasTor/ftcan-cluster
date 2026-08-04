@@ -32,6 +32,7 @@ from widgets import TopAlerts, AlarmBar, NightDim
 from widgets.layouts import LAYOUTS
 from model import SensorState
 from demo import simulate
+from gesture import FlashHold
 
 kivy.require("2.0.0")
 
@@ -40,7 +41,7 @@ kivy.require("2.0.0")
 # ============================================================================
 
 # Startup layout: which registered layout to show first (name or index).
-STARTUP_LAYOUT = os.environ.get("LAYOUT", "map")
+STARTUP_LAYOUT = os.environ.get("LAYOUT", "street")
 
 # Critical alarm thresholds (the bottom red banner)
 ALARM_LEAN_LAMBDA = 1.05       # lean mixture
@@ -88,12 +89,14 @@ class Dashboard(Widget):
     (tell-tales, alarm banner, night dim) and delegates ``update`` to it.
 
     The active layout is switched with :meth:`next_layout` — bound to the ``L``
-    key for bench/dev; wire it to a GPIO button (or a FuelTech CAN dash button)
-    on the car. All layouts are built once up front so switching is instant and
-    never re-triggers the gauges' startup sweep."""
+    key for bench/dev, and on the car to the high-beam stalk via the
+    flash-and-hold gesture (one short flash, then pull and hold ~0.6 s — see
+    ``gesture.py``). All layouts are built once up front so switching is
+    instant and never re-triggers the gauges' startup sweep."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._flash_hold = FlashHold()
 
         self.layouts = [cls() for cls in LAYOUTS]
         self.active = _startup_index()
@@ -103,6 +106,8 @@ class Dashboard(Widget):
         # persist across every switch
         self.top_alerts = TopAlerts()
         self.add_widget(self.top_alerts)
+        # tell-tale bulb check timed to finish with the gauges' startup sweep
+        self.top_alerts.start_bulb_check(RENDER_START_DELAY)
         self.night_dim = NightDim()
         self.add_widget(self.night_dim)
         self.alarm_bar = AlarmBar()
@@ -125,15 +130,20 @@ class Dashboard(Widget):
             self.next_layout()
             return True
 
-    def update(self, state):
+    def update(self, state, demo_t=None):
         """Update the active layout from shared state, plus the global overlays.
 
         Args:
             state: A ``SensorState`` instance, continuously updated by the CAN
                 and GPIO reader threads (see model.py for the full schema).
+            demo_t: Seconds since the no-CAN demo loop engaged, or ``None`` when
+                running on real CAN. Drives the tell-tale bulb-check animation.
         """
+        if self._flash_hold.sample(state.io.high_beam, time.monotonic()):
+            print("[gesture] flash+hold -> next layout", flush=True)
+            self.next_layout()
         self.layouts[self.active].update(state)
-        self.top_alerts.set_state(state)
+        self.top_alerts.set_state(state, demo_t)
         self.night_dim.set_night(state.night)
         self.alarm_bar.set_alarms(self._alarms(state))
 
@@ -186,10 +196,11 @@ class CarClusterApp(App):
         if not self.dashboard:
             return
         if self.state.since_can() > NO_CAN_DEMO_DELAY:
-            self._run_demo()
+            demo_t = self._run_demo()
         else:
             self._demo_t0 = None
-        self.dashboard.update(self.state)
+            demo_t = None
+        self.dashboard.update(self.state, demo_t)
 
     def _run_demo(self):
         """Feed the animated simulation into the state when no CAN is present.
@@ -197,10 +208,12 @@ class CarClusterApp(App):
         Writes only engine/CAN-derived fields (not GPIO inputs) directly into the
         state — bypassing ``update()`` so it doesn't reset the CAN-activity clock.
         Real CAN frames take over automatically the moment they arrive.
+        Returns the demo elapsed time (drives the tell-tale bulb check).
         """
         if self._demo_t0 is None:
             self._demo_t0 = time.monotonic()
-        vals = simulate(time.monotonic() - self._demo_t0)
+        demo_t = time.monotonic() - self._demo_t0
+        vals = simulate(demo_t)
         s = self.state
         s.rpm = vals["rpm"]
         s.wheel_speed_fl_kmh = vals["speed"]
@@ -212,6 +225,7 @@ class CarClusterApp(App):
         s.oil_temp = vals["oiltemp"]
         s.fuel_level = vals["fuel"]
         s.egt1, s.egt2, s.egt3, s.egt4 = vals["egt1"], vals["egt2"], vals["egt3"], vals["egt4"]
+        return demo_t
 
 
 def run_cluster(state):

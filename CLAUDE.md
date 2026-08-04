@@ -112,28 +112,66 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
   (`ground_fx.py` + `map_texture.jpg`) was built and then removed at the owner's request
   (didn't like it); it's in this repo's session history if ever wanted again.
 - **Position source:** `gps_helper.read_gps` thread. With no USB GPS present it mock-drives a
-  real route across town; when a NMEA module appears at `GPS_DEV` (default `/dev/ttyACM0`) it
-  hot-switches to parsing `RMC` sentences. It writes `lat/lon/heading_deg/gps_speed_kmh`
+  real route across the region; when a NMEA module appears it hot-switches to
+  parsing checksum-validated `RMC` sentences. The owner's module is a **VK-162** (u-blox 7,
+  USB CDC, 9600 baud), found via `/dev/serial/by-id/*u-blox*` — NOT a bare ttyACM number.
+  (Verified on the Pi 2026-07-29: the CANable runs candleLight/gs_usb — `1d50:606f`, no CDC
+  serial at all — so there is no tty conflict today, but identity-based discovery stays: it
+  is robust to any future device shuffle. `GPS_DEV` env overrides the path explicitly.) The owner's AliExpress listing (item 1629858367) names no
+  chipset, but its spec table (50 channels, -160/-146 dBm, 32 s cold start, "4800 or 9600
+  baud" output) fingerprints as **u-blox 6 generation** (NEO-6M class) — which accepts the
+  same UBX rate command and maxes out at exactly the 5 Hz we request. Handled: baud auto-detect (9600 → 4800 SiRF → 38400 →
+  115200; `GPS_BAUD` pins it) and 5 Hz fix-rate commands in all three dialects (u-blox UBX,
+  CASIC `$PCAS02`, MediaTek `$PMTK220`) at every port open — each chip ignores the dialects
+  it doesn't speak; SiRF stays at its default rate. If the module is a non-u-blox clone the
+  `by-id` glob may not match its USB strings — check `ls /dev/serial/by-id/` and set
+  `GPS_DEV` in the launcher if needed. Untested on the real module as of 2026-07-29. It writes `lat/lon/heading_deg/gps_speed_kmh`
   directly into `SensorState` fields (NOT via `state.update()` — that would stamp the CAN
   clock and kill no-CAN demo detection). The map HUD's speed is `wheel_speed_fl_kmh` (owner:
   wheel speed is the trusted source).
-- **Baked data:** OSM roads (Overpass, clipped to 2.5 km radius, Douglas-Peucker'd, unnamed
-  <30 m residential stubs demoted to "service" class — they're real half-mapped street
-  entrances). Bake script lives in the session scratchpad; re-baking needs internet on the
-  Mac. Projection origin -28.970008, -51.071114; local metres via equirectangular.
+- **Baked data:** OSM roads (Overpass, clipped to 12.5 km radius = 25x25 km coverage,
+  Douglas-Peucker'd, unnamed <30 m residential stubs demoted to "service" class — they're
+  real half-mapped street entrances). ~1.7k road chunks; a 1 km-cell spatial index in
+  `MapView` keeps per-frame culling proportional to local density, not map size. Bake script
+  lives in the session scratchpad; re-baking needs internet on the Mac. Projection origin
+  -28.970008, -51.071114; local metres via equirectangular.
 - **Perf:** every frame rebuilds ~600-900 meshes (cores + 2 glow layers). The journal gets
   `[map] redraw avg X.Xms over 600 frames` every ~20 s — check it after deploying map changes;
   glow layers are the first knob if the Pi can't hold 30 fps.
 
+## The display panel (verified on the Pi 2026-07-29)
+
+- EDID identifies as "GRA (Graphica Computer) HD Display", 2020, preferred mode 1920×720.
+- **DDC/CI is NOT implemented** — the panel serves EDID but "DDC communication failed"
+  (`ddcutil detect` → Invalid display; `ddcutil` is already installed on the Pi). So HDMI
+  brightness control is off the table; night dimming stays the `NightDim` overlay, and the
+  only hardware route would be a backlight-PWM pin mod on the panel's driver board.
+- The EDID **does** advertise HDR10 (PQ EOTF, max-luminance code 96 ≈ 400 nits claimed) —
+  moot for us: Kivy/SDL2 has no HDR path and the cluster's dark flat UI wouldn't benefit.
+- 1920×720 is a non-CEA mode, so the KMS driver defaults to **full-range RGB** output —
+  the near-black theme background renders correctly (no washed-grey limited-range issue).
+
+## Layout switching on the car
+
+- **Flash-and-hold gesture** on the high-beam stalk cycles layouts: one short flash
+  (<0.45 s), release (<0.9 s), then pull and hold (≥0.6 s). Detector is `gesture.py`
+  (pure logic, unit-tested against normal high-beam / single & double flash-to-pass —
+  none of them fire); `Dashboard.update` samples `state.io.high_beam` through it. The
+  owner rejected touch input (fingerprints on the display). **Live-verified 2026-07-30** —
+  the owner fired it 6 times in a row on the real stalk (first tries were rapid flicks,
+  which correctly did NOT fire; flash-then-hold fired every time).
+
 ## In-flight / TODO
 
-- **Fan + 2-step tell-tales:** now fed by the tagged-broadcast reader in `can_helper.py`
+- **Fan + 2-step tell-tales:** fed by the tagged-broadcast reader in `can_helper.py`
   (`DATAID_LAUNCH 0x0008` → `two_step`, `DATAID_FAN 0x004D` "ECU Eletro Fan" → `radiator_fan`).
-  Both still need a live verify on the car to confirm the ECU actually broadcasts them.
+  **Live-verified 2026-07-30:** the real ECU (ProductID 0x5020) broadcasts both — fan observed
+  as 1 with ignition on, 0x0008/0x0048 present at 0. Pill-level check (fan pill actually lit)
+  still pending owner eyes-on-screen.
 - **GPIO pin map is being discovered** by the owner via `./logs.sh gpio` (toggle a switch, see
   which GPIO logs `-> ON`). Known: `HIGH_BEAM=6, LEFT_INDICATOR=21, RIGHT_INDICATOR=16, CHOKE=13,
   PARKING_BRAKE=5`; `B=20, D=19, E=26` still unknown. `PARKING_BRAKE` → BRAKE pill, `HIGH_BEAM` →
-  HIGH pill, `CHOKE` → CHOKE pill, indicators → ◄ ► arrows. **CHOKE is active-high** — it's in
+  HIGH pill, `CHOKE` → BOOSTER pill, indicators → ◄ ► arrows. **CHOKE is active-high** — it's in
   `gpio_helper.INVERTED`, so its reading is inverted vs. the active-low default of the other pins.
 - A **plymouth VW-logo boot splash** was attempted and **fully reverted** (couldn't get the logo
   to composite without seeing the screen; logo went off-screen). Boot logs are back to normal.

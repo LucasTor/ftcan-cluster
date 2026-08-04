@@ -13,7 +13,7 @@ from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.graphics import Color, RoundedRectangle, Rectangle, Line
 
-TILE_BG = (0.075, 0.086, 0.105, 1.0)   # dark panel
+TILE_BG = (0.0, 0.0, 0.0, 1.0)         # pure-black panel (border separates)
 TILE_BORDER = (0.32, 0.60, 0.72, 0.30)  # subtle teal border
 BAR_TRACK = (0.055, 0.290, 0.360, 1.0)  # dark teal (unfilled)
 BAR_FILL = (0.078, 0.784, 1.0, 1.0)     # bright cyan (filled)

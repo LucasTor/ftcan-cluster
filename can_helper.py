@@ -61,7 +61,10 @@ SOURCE_GATE = {
 DATAID_GEAR = 0x0011        # signed gear (Note 2)
 DATAID_LAUNCH = 0x0008      # ECU launch mode (2-step / 3-step / burnout): nonzero = armed
 DATAID_FAN = 0x004D         # ECU Eletro Fan (Note 7: 0 = off, 1 = on)
-DATAID_DAYNIGHT = 0x007D    # day/night (tentative — verify live; 1 = night)
+DATAID_DAYNIGHT = 0x0153    # "Day/Night state" (Note 12: 0 = day, 1 = night).
+                            # NOT 0x007D — that's the day/night *button* state
+                            # and is "Internal use only" (never broadcast);
+                            # 0x0153 verified live on the car 2026-07-30.
 
 GEAR_LABEL = {-2: "P", -1: "R", 0: "N", 1: "1", 2: "2", 3: "3", 4: "4", 5: "5", 6: "6"}
 
@@ -182,7 +185,7 @@ def read_can(interface="socketcan", channel="can0", state=None):
 # --- Discovery logger: dump unmapped real-time measures (find fan, day/night) ---
 RT_NAMES = {did: f[0] for did, f in MEASURE_MAP.items()}
 RT_NAMES.update({DATAID_GEAR: "gear", DATAID_LAUNCH: "launch/2step",
-                 DATAID_FAN: "radiator_fan", DATAID_DAYNIGHT: "day/night?"})
+                 DATAID_FAN: "radiator_fan", DATAID_DAYNIGHT: "day/night"})
 
 
 def log_realtime(interface="socketcan", channel="can0"):
