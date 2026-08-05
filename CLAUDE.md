@@ -10,6 +10,9 @@ from a **FuelTech ECU over CAN (FTCAN 2.0)** and switch inputs over **GPIO**. UI
 (SDL2 / KMS-DRM, no desktop). The look is minimal/dark with an Azul Boreal blue accent
 (modelled on a Claude Design mockup, "Painel Gol Minimal").
 
+There is also a **complete QML/Qt Quick twin of the UI** (see "The QML build" below) —
+same backend, parallel view layer, not yet deployed to the Pi.
+
 ## The deployment is the tricky part — read this
 
 - **Target Pi:** `192.168.0.153`, user `lucas`, password `lucas` (also baked as defaults in
@@ -177,6 +180,57 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
   to composite without seeing the screen; logo went off-screen). Boot logs are back to normal.
   `vw-logo.avif` is kept in the repo. If retrying, prefer a built-in plymouth image theme over a
   hand-written script theme, and you'll need the owner to confirm placement on the real screen.
+
+## The QML build (parallel UI, 2026-08-04)
+
+A full Qt Quick port of the cluster lives alongside the Kivy one — same three layouts
+(street / detail / map), tell-tales incl. bulb check, alarms, intro sweeps, demo mode,
+flash-and-hold gesture. **The Kivy build is untouched and remains what runs on the
+car.** The QML build is verified on the Mac (screenshot parity) but **not yet deployed
+to the Pi**. It also goes beyond the Kivy build in three deliberate ways: layouts
+switch via an infinite vertical carousel slide (300 ms; every switch slides up — a
+continuous `carouselPos` only ever advances and slots sit at wrapped offsets), the view
+runs 4x MSAA, and night mode is **palette-level** instead of the Kivy black veil —
+`Theme.d()` dims informational colours to ~45% while tell-tales, alarms, the shift
+light and EGT status dots stay full-brightness (the custom `ring_item`/`map_item`
+take a `dim` property since their colours never pass through QML).
+
+- **Files:** `qml/` (all QML; `Theme.qml` mirrors `theme.py`), `cluster_qml.py`
+  (SensorBridge QObject + all decision logic: pills/bulb-check/alarms/demo/gesture —
+  QML is presentation only), `map_item.py` / `ring_item.py` (custom scene-graph items),
+  `start_cluster_qml.py` (thread launcher twin). Backend (`model`, `demo`, `gesture`,
+  `can/gpio/gps_helper`) is shared unmodified.
+- **PySide6 version is load-bearing** (split by platform in `pyproject.toml`):
+  Pi/linux = `6.7.3`, the last release whose manylinux aarch64 wheel (2_31) installs
+  on bookworm's glibc 2.36 (needs python <3.13; Pi runs 3.11). Mac/darwin = `6.11.x`,
+  verified with the custom scene-graph items on 3.13 and 3.14. Avoid 6.10.x — it
+  crashed in Python scene-graph overrides. The project pins `python <3.14` because
+  Kivy 2.3.1 has no cp314 wheels — the Mac poetry env runs **3.13** so the Kivy and
+  QML builds share one env (`poetry env use python3.13`).
+- **Python scene-graph rules (violating these = blank/segfaulting items):**
+  keep `QSGGeometry.defaultAttributes_*()` in a module-level global (the binding hands
+  you a temporary; QSGGeometry stores a pointer into it); keep Python refs to
+  node/geometry/material on the item; write vertices by `struct.pack`-ing into a
+  bytearray and `ctypes.memmove` into `int(geom.vertexData())` (address is stable and
+  writes verified); set `QSG_RENDER_LOOP=basic` (done in `cluster_qml.py` — the
+  threaded loop crashes into the GIL).
+- **Verifying on the Mac:** run `scratchpad/qml_capture.py`-style harness — a real
+  window at `DEV=true` half-scale (960×360); the Retina grab is exactly 1920×720.
+  The offscreen platform **cannot** render the map/ring (it forces the software
+  backend, which skips custom geometry nodes) — a real window is required for those.
+  Mac-only gotcha: grabs can flakily lose custom-node regions when other windows
+  occlude the test window (compositor artifact — looked like truncated geometry, cost
+  a long debug session; re-run with the window unobstructed before believing a bad
+  grab). Irrelevant on the Pi (eglfs fullscreen, no compositor).
+- **Deploying would need (not done):** PySide6-Essentials==6.7.3 in the poetry env on
+  the Pi (needs `--rw` + internet), a launcher pointing at `start_cluster_qml.py`, Qt
+  `eglfs` platform (`QT_QPA_PLATFORM=eglfs`, likely a KMS config for the non-CEA
+  1920×720 mode), `QSG_RENDER_LOOP=basic`, and eyes-on-screen the first boot — eglfs
+  bring-up shows healthy logs even when the display is black, so keep the Kivy
+  launcher as fallback.
+- Fonts: Kivy's "bold" is Compagnon-**Medium** + synthetic bold — QML must use
+  `font.bold: true` over Medium. `Compagnon-Bold.otf` is a decorative outline face
+  that looks nothing like the cluster's digits; don't use it.
 
 ## Conventions
 
