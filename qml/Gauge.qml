@@ -32,16 +32,19 @@ Item {
     property real smoothFrac: frac
     Behavior on smoothFrac { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
 
-    // startup sweep: needle+arc only, the digit stays put (update_label=False)
+    // startup sweep: needle+arc only, the digit stays put (update_label=False).
+    // Timing comes from the shared intro spec (via the bridge), same numbers
+    // the Kivy gauge uses.
+    readonly property var intro: sensors.intro
     property real introFrac: 0
     property bool introDone: false
     readonly property real shownFrac: introDone ? smoothFrac : introFrac
     SequentialAnimation {
         running: true
-        PauseAnimation { duration: 2500 }
-        NumberAnimation { target: gauge; property: "introFrac"; to: 1; duration: 700; easing.type: Easing.OutCubic }
-        PauseAnimation { duration: 600 }
-        NumberAnimation { target: gauge; property: "introFrac"; to: 0; duration: 700; easing.type: Easing.OutCubic }
+        PauseAnimation { duration: gauge.intro.pause }
+        NumberAnimation { target: gauge; property: "introFrac"; to: 1; duration: gauge.intro.sweep; easing.type: Easing.OutCubic }
+        PauseAnimation { duration: gauge.intro.gaugeHold }
+        NumberAnimation { target: gauge; property: "introFrac"; to: 0; duration: gauge.intro.back; easing.type: Easing.OutCubic }
         ScriptAction { script: gauge.introDone = true }
     }
 

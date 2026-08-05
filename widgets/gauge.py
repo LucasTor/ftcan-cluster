@@ -25,10 +25,13 @@ SHIFT_ARC_WIDTH = 13      # fat amber arc while shifting
 SHIFT_BLINK = 0.06        # fast strobe (s per toggle)
 SHIFT_FLASH_ALPHA = 0.55  # red disc wash intensity on the bright phase
 
-# Startup self-test sweep timing (seconds). The initial delay lets the display
-# finish coming up so the whole sweep is visible, not just its tail.
-INTRO_SWEEP_AT = 2.5   # sweep needle to full scale
-INTRO_RESET_AT = 3.8   # then sweep back to zero
+# Startup self-test sweep timing (seconds, from the shared intro spec). The
+# initial delay lets the display finish coming up so the whole sweep is
+# visible, not just its tail.
+from decisions import INTRO_PAUSE_MS, INTRO_SWEEP_MS, INTRO_GAUGE_HOLD_MS
+
+INTRO_SWEEP_AT = INTRO_PAUSE_MS / 1000   # sweep needle to full scale
+INTRO_RESET_AT = (INTRO_PAUSE_MS + INTRO_SWEEP_MS + INTRO_GAUGE_HOLD_MS) / 1000
 
 
 class Gauge(Widget):

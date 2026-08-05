@@ -10,6 +10,42 @@ import math
 CYCLE = 15.0  # seconds per loop
 
 
+class DemoFeed:
+    """Feeds the simulation into a ``SensorState`` while no CAN is present.
+
+    Writes only engine/CAN-derived fields (not GPIO inputs) directly into the
+    state — bypassing ``update()`` so it doesn't reset the CAN-activity clock.
+    Real CAN frames take over automatically the moment they arrive. Both UI
+    builds drive this from their render tick.
+    """
+
+    def __init__(self):
+        self._t0 = None  # monotonic time the demo loop engaged
+
+    def feed(self, state, now):
+        """Write simulated values for ``now`` and return the demo elapsed time
+        (drives the tell-tale bulb check)."""
+        if self._t0 is None:
+            self._t0 = now
+        t = now - self._t0
+        vals = simulate(t)
+        state.rpm = vals["rpm"]
+        state.wheel_speed_fl_kmh = vals["speed"]
+        state.map = vals["map"]
+        state.lambda_afr = vals["lambda_afr"]
+        state.engine_temp = vals["engine_temp"]
+        state.air_temp = vals["air_temp"]
+        state.oil_pressure_bar = vals["oil"]
+        state.oil_temp = vals["oiltemp"]
+        state.fuel_level = vals["fuel"]
+        state.egt1, state.egt2, state.egt3, state.egt4 = (
+            vals["egt1"], vals["egt2"], vals["egt3"], vals["egt4"])
+        return t
+
+    def reset(self):
+        self._t0 = None
+
+
 def _lerp(a, b, k):
     k = max(0.0, min(1.0, k))
     return a + (b - a) * k

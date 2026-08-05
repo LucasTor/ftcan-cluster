@@ -195,11 +195,26 @@ runs 4x MSAA, and night mode is **palette-level** instead of the Kivy black veil
 light and EGT status dots stay full-brightness (the custom `ring_item`/`map_item`
 take a `dim` property since their colours never pass through QML).
 
-- **Files:** `qml/` (all QML; `Theme.qml` mirrors `theme.py`), `cluster_qml.py`
-  (SensorBridge QObject + all decision logic: pills/bulb-check/alarms/demo/gesture —
-  QML is presentation only), `map_item.py` / `ring_item.py` (custom scene-graph items),
-  `start_cluster_qml.py` (thread launcher twin). Backend (`model`, `demo`, `gesture`,
-  `can/gpio/gps_helper`) is shared unmodified.
+- **Files:** `qml/` (all QML; `Theme.qml` mirrors `theme.py` — checked by
+  `tools/check_theme_sync.py`, run it after touching either), `cluster_qml.py`
+  (SensorBridge QObject; QML is presentation only), `map_item.py` / `ring_item.py`
+  (custom scene-graph items), `start_cluster_qml.py` (thread launcher twin).
+  Backend (`model`, `demo`, `gesture`, `can/gpio/gps_helper`) is shared unmodified.
+- **Shared decision/geometry modules (2026-08-05 refactor — BOTH builds consume
+  these; edit them, not per-build copies):** `decisions.py` (all thresholds,
+  the PILLS spec incl. icons/colour names, `compute_pills`/`compute_alarms`,
+  `BulbCheck`, `wifi_connected`, intro-sweep timing, layout names/startup),
+  `dial_spec.py` (big-dial geometry + comet-trail hue; BigDial.qml reads it via
+  the bridge's constant `dial`/`intro` maps), `map_geometry.py` (map projection
+  constants, road styles, `RoadMap` culling/clipping, `SmoothedPose`, ribbon
+  extrusion — map_view.py and map_item.py are thin adapters; verified
+  pixel-identical to the pre-refactor renderer), `demo.DemoFeed` (no-CAN feed).
+- **SensorBridge emits per-property change signals** (generated in the class
+  body from `_SENSOR_FLOATS`), not one global tick signal: `tick()` compares
+  each mirrored value and fires only what moved, so steady sensors cost no QML
+  binding re-evaluations. CenterInfo's micro-grid is static `MicroCell`
+  instances with per-sensor bindings — don't turn it back into a per-tick JS
+  array model (that recreated all 8 delegates every 33 ms).
 - **PySide6 version is load-bearing** (split by platform in `pyproject.toml`):
   Pi/linux = `6.7.3`, the last release whose manylinux aarch64 wheel (2_31) installs
   on bookworm's glibc 2.36 (needs python <3.13; Pi runs 3.11). Mac/darwin = `6.11.x`,

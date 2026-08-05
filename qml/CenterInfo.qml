@@ -33,26 +33,40 @@ Item {
         return egtLerp(Theme.egtMid, Theme.egtUnbalanced, (k - 0.5) * 2.0)
     }
 
-    // (label, value text, warn active) rows for the micro grid
     readonly property real egtAvg: (egts[0] + egts[1] + egts[2] + egts[3]) / 4
-    readonly property var microCells: [
-        { label: "AIR",    text: Math.round(sensors.air_temp) + " °C",
-          warn: sensors.air_temp > 58, warnColor: Theme.ttAmber },
-        { label: "ENGINE", text: Math.round(sensors.engine_temp) + " °C",
-          warn: sensors.engine_temp > 104, warnColor: Theme.ttRed },
-        { label: "OIL",    text: sensors.oil_pressure_bar.toFixed(1) + " BAR",
-          warn: false, warnColor: Theme.ttRed },
-        { label: "EGT",    text: card.egtActive ? Math.round(card.egtAvg) + " °C" : "—",
-          warn: card.egtActive && card.egtAvg > 750, warnColor: Theme.ttRed },
-        { label: "FUEL P", text: sensors.fuel_pressure_bar.toFixed(1) + " BAR",
-          warn: false, warnColor: Theme.ttRed },
-        { label: "LEVEL",  text: Math.round(sensors.fuel_level) + " %",
-          warn: false, warnColor: Theme.ttRed },
-        { label: "OIL T",  text: Math.round(sensors.oil_temp) + " °C",
-          warn: sensors.oil_temp > 120, warnColor: Theme.ttRed },
-        { label: "FUEL",   text: "E" + Math.round(sensors.ethanol),
-          warn: false, warnColor: Theme.ttRed },
-    ]
+
+    // One micro-grid cell: label over value. Cells are static instances (not a
+    // per-tick model) so only the value/warn bindings — each depending on its
+    // own sensor — re-evaluate; the delegates are never rebuilt.
+    component MicroCell: Column {
+        property string label
+        property string value
+        property bool warn: false
+        property color warnColor: Theme.ttRed
+        width: (card.width - 20 - 3 * 10) / 4
+        spacing: 2
+        Text {
+            width: parent.width
+            height: 22
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            text: parent.label
+            font.family: Theme.fontMono
+            font.pixelSize: 18
+            color: Theme.labelDim
+        }
+        Text {
+            width: parent.width
+            height: 40
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            text: card.live ? parent.value : "—"
+            font.family: Theme.fontMono
+            font.pixelSize: 22
+            font.bold: true
+            color: parent.warn ? parent.warnColor : Theme.value
+        }
+    }
 
     Column {
         x: 10
@@ -67,34 +81,18 @@ Item {
             columns: 4
             columnSpacing: 10
             rowSpacing: 6
-            Repeater {
-                model: card.microCells
-                delegate: Column {
-                    width: (card.width - 20 - 3 * 10) / 4
-                    spacing: 2
-                    Text {
-                        width: parent.width
-                        height: 22
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        text: modelData.label
-                        font.family: Theme.fontMono
-                        font.pixelSize: 18
-                        color: Theme.labelDim
-                    }
-                    Text {
-                        width: parent.width
-                        height: 40
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        text: card.live ? modelData.text : "—"
-                        font.family: Theme.fontMono
-                        font.pixelSize: 22
-                        font.bold: true
-                        color: modelData.warn ? modelData.warnColor : Theme.value
-                    }
-                }
-            }
+            MicroCell { label: "AIR";    value: Math.round(sensors.air_temp) + " °C"
+                        warn: sensors.air_temp > 58; warnColor: Theme.ttAmber }
+            MicroCell { label: "ENGINE"; value: Math.round(sensors.engine_temp) + " °C"
+                        warn: sensors.engine_temp > 104 }
+            MicroCell { label: "OIL";    value: sensors.oil_pressure_bar.toFixed(1) + " BAR" }
+            MicroCell { label: "EGT";    value: card.egtActive ? Math.round(card.egtAvg) + " °C" : "—"
+                        warn: card.egtActive && card.egtAvg > 750 }
+            MicroCell { label: "FUEL P"; value: sensors.fuel_pressure_bar.toFixed(1) + " BAR" }
+            MicroCell { label: "LEVEL";  value: Math.round(sensors.fuel_level) + " %" }
+            MicroCell { label: "OIL T";  value: Math.round(sensors.oil_temp) + " °C"
+                        warn: sensors.oil_temp > 120 }
+            MicroCell { label: "FUEL";   value: "E" + Math.round(sensors.ethanol) }
         }
 
         // --- EGT balance row: 4 cylinder cells (dot over temp), tight cluster ---

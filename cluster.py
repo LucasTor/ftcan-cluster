@@ -31,31 +31,12 @@ from kivy.core.text import LabelBase, DEFAULT_FONT
 from widgets import TopAlerts, AlarmBar, NightDim
 from widgets.layouts import LAYOUTS
 from model import SensorState
-from demo import simulate
+from demo import DemoFeed
 from gesture import FlashHold
+from decisions import (NO_CAN_DEMO_DELAY, RENDER_START_DELAY, compute_alarms,
+                       startup_index)
 
 kivy.require("2.0.0")
-
-# ============================================================================
-# Configuration Constants
-# ============================================================================
-
-# Startup layout: which registered layout to show first (name or index).
-STARTUP_LAYOUT = os.environ.get("LAYOUT", "street")
-
-# Critical alarm thresholds (the bottom red banner)
-ALARM_LEAN_LAMBDA = 1.05       # lean mixture
-ALARM_OVERHEAT_C = 110         # coolant overheat
-ALARM_OIL_PRESS_BAR = 1.0      # minimum oil pressure...
-ALARM_OIL_PRESS_RPM = 1500     # ...only checked above this rpm (idle runs lower)
-ALARM_EGT_C = 750              # any cylinder EGT above this is too hot
-
-# After this many seconds with no CAN frame, run the animated demo loop so the
-# cluster shows live values on a bench / when not connected to the car.
-NO_CAN_DEMO_DELAY = 3.0
-
-# Start rendering live data once the gauges' startup sweep has finished.
-RENDER_START_DELAY = 5.0
 
 # ============================================================================
 # Application Setup
@@ -73,17 +54,6 @@ LabelBase.register(DEFAULT_FONT, "fonts/Compagnon-Medium.otf")
 # Dashboard Widget
 # ============================================================================
 
-def _startup_index():
-    """Resolve STARTUP_LAYOUT (a name or an index string) to a layout index."""
-    names = [cls.name for cls in LAYOUTS]
-    if STARTUP_LAYOUT in names:
-        return names.index(STARTUP_LAYOUT)
-    try:
-        return int(STARTUP_LAYOUT) % len(LAYOUTS)
-    except (ValueError, ZeroDivisionError):
-        return 0
-
-
 class Dashboard(Widget):
     """Host: shows one swappable content layout under the global overlays
     (tell-tales, alarm banner, night dim) and delegates ``update`` to it.
@@ -99,7 +69,7 @@ class Dashboard(Widget):
         self._flash_hold = FlashHold()
 
         self.layouts = [cls() for cls in LAYOUTS]
-        self.active = _startup_index()
+        self.active = startup_index([cls.name for cls in LAYOUTS])
         self.add_widget(self.layouts[self.active])
 
         # global overlays — added after the layout so they draw on top and
@@ -145,26 +115,7 @@ class Dashboard(Widget):
         self.layouts[self.active].update(state)
         self.top_alerts.set_state(state, demo_t)
         self.night_dim.set_night(state.night)
-        self.alarm_bar.set_alarms(self._alarms(state))
-
-    @staticmethod
-    def _alarms(state):
-        """Active critical alarms for the bottom banner."""
-        alarms = []
-        # engine not running (off / cranking) — these readings aren't meaningful
-        # (lambda pegs lean on ambient O2, etc.), so keep the banner clear.
-        if state.rpm < 500:
-            return alarms
-        if state.lambda_afr > ALARM_LEAN_LAMBDA:
-            alarms.append("LEAN")
-        if state.engine_temp > ALARM_OVERHEAT_C:
-            alarms.append("OVERHEAT")
-        # low oil pressure, but only above idle (idle naturally runs lower)
-        if state.rpm > ALARM_OIL_PRESS_RPM and state.oil_pressure_bar < ALARM_OIL_PRESS_BAR:
-            alarms.append("OIL PRESSURE")
-        if max(state.egt1, state.egt2, state.egt3, state.egt4) > ALARM_EGT_C:
-            alarms.append("EGT")
-        return alarms
+        self.alarm_bar.set_alarms(compute_alarms(state))
 
 
 # ============================================================================
@@ -178,7 +129,7 @@ class CarClusterApp(App):
         super().__init__()
         self.state = state or SensorState()
         self.dashboard = None
-        self._demo_t0 = None  # monotonic time the demo loop engaged
+        self._demo = DemoFeed()
 
     def build(self):
         """Build and return the main dashboard widget."""
@@ -196,36 +147,11 @@ class CarClusterApp(App):
         if not self.dashboard:
             return
         if self.state.since_can() > NO_CAN_DEMO_DELAY:
-            demo_t = self._run_demo()
+            demo_t = self._demo.feed(self.state, time.monotonic())
         else:
-            self._demo_t0 = None
+            self._demo.reset()
             demo_t = None
         self.dashboard.update(self.state, demo_t)
-
-    def _run_demo(self):
-        """Feed the animated simulation into the state when no CAN is present.
-
-        Writes only engine/CAN-derived fields (not GPIO inputs) directly into the
-        state — bypassing ``update()`` so it doesn't reset the CAN-activity clock.
-        Real CAN frames take over automatically the moment they arrive.
-        Returns the demo elapsed time (drives the tell-tale bulb check).
-        """
-        if self._demo_t0 is None:
-            self._demo_t0 = time.monotonic()
-        demo_t = time.monotonic() - self._demo_t0
-        vals = simulate(demo_t)
-        s = self.state
-        s.rpm = vals["rpm"]
-        s.wheel_speed_fl_kmh = vals["speed"]
-        s.map = vals["map"]
-        s.lambda_afr = vals["lambda_afr"]
-        s.engine_temp = vals["engine_temp"]
-        s.air_temp = vals["air_temp"]
-        s.oil_pressure_bar = vals["oil"]
-        s.oil_temp = vals["oiltemp"]
-        s.fuel_level = vals["fuel"]
-        s.egt1, s.egt2, s.egt3, s.egt4 = vals["egt1"], vals["egt2"], vals["egt3"], vals["egt4"]
-        return demo_t
 
 
 def run_cluster(state):
@@ -238,8 +164,11 @@ def run_cluster(state):
     try:
         app = CarClusterApp(state)
         app.run()
-    except Exception as e:
-        print(f"Error running cluster: {e}")
+    except Exception:
+        # full stack into the journal — it's the only diagnostic channel on
+        # the headless Pi
+        import traceback
+        traceback.print_exc()
 
 
 # ============================================================================

@@ -15,6 +15,15 @@ Item {
         onTriggered: alerts.blinkOn = !alerts.blinkOn
     }
 
+    // the shared pill spec names colours; resolve them against the theme here
+    function ttColor(name) {
+        return name === "green" ? Theme.ttGreen
+             : name === "blue"  ? Theme.ttBlue
+             : name === "amber" ? Theme.ttAmber
+             : name === "cyan"  ? Theme.ttCyan
+             : Theme.ttRed
+    }
+
     Row {
         anchors.horizontalCenter: parent.horizontalCenter
         y: 0
@@ -26,8 +35,9 @@ Item {
                 readonly property bool active: pillState !== undefined
                     && pillState !== false && pillState !== 0
                 icon: modelData.icon
-                onColor: modelData.color
-                litColor: (typeof pillState === "string") ? pillState : modelData.color
+                onColor: alerts.ttColor(modelData.color)
+                litColor: (typeof pillState === "string")
+                    ? alerts.ttColor(pillState) : onColor
                 lit: active && (!modelData.blinks || alerts.blinkOn || sensors.pill_chase)
             }
         }

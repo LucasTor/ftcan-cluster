@@ -64,7 +64,7 @@ QtObject {
     // shift colours stay full-brightness: the shift light must pop at night
     readonly property color gaugeShift: "#ffd23a"
     readonly property color gaugeShiftText: "#ff3b30"
-    readonly property color gaugeShiftFlash: "#ff180f"
+    readonly property color gaugeShiftFlash: "#ff1810"
     readonly property color gaugeCenter: d("#f2f4f8")
     readonly property color gaugeSub: d(Qt.rgba(0.353, 0.651, 0.918, 0.85))
     readonly property color gaugeUnit: d(Qt.rgba(0.353, 0.651, 0.918, 0.40))

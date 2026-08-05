@@ -20,3 +20,8 @@ if __name__ == '__main__':
         ex.submit(log_realtime)
 
     run_cluster(state)
+
+    # The reader threads block forever in their read loops and are non-daemon
+    # (executor threads), so a normal exit would hang joining them. Nothing
+    # here needs graceful teardown — state is in-memory only.
+    os._exit(0)

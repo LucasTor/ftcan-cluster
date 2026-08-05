@@ -7,7 +7,6 @@ invisible until they have something to say. Turn signals, the 2-step and the
 over-boost warning blink while active.
 """
 
-import os
 import time
 
 from kivy.uix.widget import Widget
@@ -18,9 +17,10 @@ from kivy.clock import Clock
 
 from theme import (
     FONT_ICONS, WINDOW_HEIGHT,
-    TT_GREEN, TT_BLUE, TT_RED, TT_AMBER, TT_CYAN, TT_BOOST,
+    TT_GREEN, TT_BLUE, TT_RED, TT_AMBER,
     PILL_OFF_TEXT,
 )
+from decisions import PILLS, BulbCheck, compute_pills, wifi_connected
 
 PILL_HEIGHT = 40
 PILL_GAP = 10
@@ -28,31 +28,12 @@ PILL_WIDTH = 48      # icon tell-tales are all the same width
 ICON_SIZE = "32sp"   # MDI glyph size
 ROW_TOP_MARGIN = 24  # gap between the window top and the pill row
 BLINK_PERIOD = 0.4   # seconds per blink toggle
-CHASE_STEP = 0.35    # demo bulb-check: seconds each tell-tale stays lit
-CHASE_HOLD = 1.6     # demo bulb-check: seconds of everything-on after the chase
 WIFI_MARGIN_X = 40   # left inset of the standalone WiFi tell-tale
 WIFI_POLL = 3.0      # seconds between WiFi status checks
-EGT_HOT_C = 750      # hottest-cylinder EGT tell-tale threshold (= cluster.ALARM_EGT_C)
-LAMBDA_LEAN = 1.05   # lambda above this = lean, red (= cluster.ALARM_LEAN_LAMBDA)
-LAMBDA_RICH = 0.75   # lambda below this = over-rich, amber
 
-
-def _wifi_connected():
-    """True if any wireless interface is associated/up (read straight from sysfs)."""
-    base = "/sys/class/net"
-    try:
-        for iface in os.listdir(base):
-            d = os.path.join(base, iface)
-            if os.path.isdir(os.path.join(d, "wireless")) or os.path.exists(os.path.join(d, "phy80211")):
-                try:
-                    with open(os.path.join(d, "operstate")) as f:
-                        if f.read().strip() == "up":
-                            return True
-                except OSError:
-                    continue
-    except OSError:
-        pass
-    return False
+# colour names in the shared pill spec -> theme colours
+PILL_COLORS = {"green": TT_GREEN, "blue": TT_BLUE, "red": TT_RED,
+               "amber": TT_AMBER}
 
 
 class TellTale(Widget):
@@ -87,29 +68,12 @@ class TellTale(Widget):
 
 
 class TopAlerts(Widget):
-    """Row of tell-tale pills across the top of the cluster."""
+    """Row of tell-tale pills across the top of the cluster.
 
-    # (key, pill kwargs, colour, blinks) — icons are MDI codepoints.
-    # Between the turn arrows, ordered least → most important left to right:
-    # plain status lights first, then armed modes, then warnings, ending with
-    # the you-are-breaking-the-engine criticals.
-    PILLS = [
-        ("left",    {"icon": "\U000F0731"}, TT_GREEN, False),  # arrow-left-bold
-        ("high",    {"icon": "\U000F0C4C"}, TT_BLUE,  False),  # car-light-high
-        ("fan",     {"icon": "\U000F0210"}, TT_BLUE,  False),  # fan
-        ("booster", {"icon": "\U000F0874"}, TT_AMBER, False),  # gauge-full (choke lever reused as booster switch)
-        ("2step",   {"icon": "\U000F0238"}, TT_RED,   False),  # fire
-        ("fuel",    {"icon": "\U000F0298"}, TT_RED,   False),  # gas-station
-        ("brake",   {"icon": "\U000F0D5F"}, TT_RED,   False),  # car-brake-parking
-        # ("cel",     {"icon": "\U000F01FA"}, TT_AMBER, False),  # engine
-        ("batt",    {"icon": "\U000F010C"}, TT_RED,   False),  # car-battery
-        # ("boost",   {"icon": "\U000F101A"}, TT_BOOST, True),   # car-turbocharger
-        ("lambda",  {"icon": "\U000F0627"}, TT_RED,   True),   # lambda (red lean / amber rich)
-        ("egt",     {"icon": "\U000F0E03"}, TT_RED,   True),   # thermometer-chevron-up
-        ("temp",    {"icon": "\U000F03C8"}, TT_RED,   True),   # coolant-temperature
-        ("oil",     {"icon": "\U000F03C7"}, TT_RED,   True),   # oil (can)
-        ("right",   {"icon": "\U000F0734"}, TT_GREEN, False),  # arrow-right-bold
-    ]
+    Which pills exist, their icons/colours and which are active all come from
+    the shared ``decisions`` module (also consumed by the QML build); this
+    widget only renders them and runs the blink/bulb-check presentation.
+    """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -118,14 +82,14 @@ class TopAlerts(Widget):
         self._demo_chase = False  # bulb-check chase running (suspends blink)
         self._boot_ev = None      # Clock event of the boot bulb check
         self._boot_t0 = 0.0
-        self._boot_step = CHASE_STEP
-        self._boot_duration = 0.0
+        self._bulb = None         # BulbCheck of the boot self-test
 
         self.row = BoxLayout(orientation="horizontal", size_hint=(None, None),
                              spacing=PILL_GAP, height=PILL_HEIGHT)
         self.pills = {}
-        for key, pill_kwargs, color, blinks in self.PILLS:
-            pill = TellTale(key, color, blinks=blinks, **pill_kwargs)
+        for key, codepoint, color, blinks in PILLS:
+            pill = TellTale(key, PILL_COLORS[color], icon=chr(codepoint),
+                            blinks=blinks)
             self.pills[key] = pill
             self.row.add_widget(pill)
         self.add_widget(self.row)
@@ -154,7 +118,7 @@ class TopAlerts(Widget):
         self._refresh()
 
     def _check_wifi(self, _):
-        if _wifi_connected():
+        if wifi_connected():
             self.wifi_pill.opacity = 1
             self.wifi_pill.set_lit(True)
         else:
@@ -182,48 +146,7 @@ class TopAlerts(Widget):
             self._boot_ev.cancel()
             self._boot_ev = None
         self._demo_chase = False
-        io = state.io
-        fuel = state.fuel_level
-        # mixture: red when lean, amber when over-rich; meaningless below idle
-        # (an off engine pegs lambda lean on ambient O2)
-        lam = False
-        if state.rpm > 500:
-            if state.lambda_afr > LAMBDA_LEAN:
-                lam = TT_RED
-            elif state.lambda_afr < LAMBDA_RICH:
-                lam = TT_AMBER
-        self._active = {
-            "left":  io.left_indicator,
-            "right": io.right_indicator,
-            "high":  io.high_beam,
-            "booster": io.choke,  # booster arm switch on the old choke lever
-            "temp":  state.engine_temp > 100,
-            "egt":   max(state.egt1, state.egt2, state.egt3, state.egt4) > EGT_HOT_C,
-            "lambda": lam,
-            # genuine loss of oil pressure only (avoid false alarms at rest)
-            "oil":   state.rpm > 500 and 0 < state.oil_pressure_bar < 0.8,
-            "fuel":  0 < fuel < 15,
-            "boost": state.map > 1.32,
-            "fan":   state.radiator_fan,
-            "2step": state.two_step,
-            "brake": io.parking_brake,
-            "batt":  False,
-            "cel":   False,
-        }
-        self._refresh()
-
-    def _set_demo(self, t, step=CHASE_STEP):
-        """Bulb-check animation: chase down the row, then everything on."""
-        keys = list(self.pills)
-        cycle = len(keys) * step + CHASE_HOLD
-        t = t % cycle
-        if t < len(keys) * step:
-            lit = int(t / step)
-            self._demo_chase = True  # each slot is shorter than a blink period
-            self._active = {key: i == lit for i, key in enumerate(keys)}
-        else:
-            self._demo_chase = False  # all on — let the blink pills blink
-            self._active = {key: True for key in keys}
+        self._active = compute_pills(state)
         self._refresh()
 
     def start_bulb_check(self, duration):
@@ -234,26 +157,25 @@ class TopAlerts(Widget):
         the row dark afterwards); the first real-CAN ``set_state`` cancels it
         early, so it never fights real data.
         """
-        self._boot_step = max(0.05, (duration - CHASE_HOLD) / len(self.pills))
-        self._boot_duration = len(self.pills) * self._boot_step + CHASE_HOLD
+        self._bulb = BulbCheck(duration, keys=list(self.pills))
         self._boot_t0 = time.monotonic()
         self._boot_ev = Clock.schedule_interval(self._boot_tick, 1 / 30)
 
     def _boot_tick(self, _):
-        t = time.monotonic() - self._boot_t0
-        if t >= self._boot_duration:  # one full cycle, then done
+        frame = self._bulb.frame(time.monotonic() - self._boot_t0)
+        if frame is None:             # one full cycle, then done
             self._boot_ev.cancel()
             self._boot_ev = None
             self._demo_chase = False
             self._active = {}
-            self._refresh()
-            return
-        self._set_demo(t, self._boot_step)
+        else:
+            self._demo_chase, self._active = frame
+        self._refresh()
 
     def _refresh(self):
-        # _active values are truthy/falsy; an RGBA tuple lights the pill in
-        # that colour instead of its default (used by the lambda rich/lean pill)
+        # _active values are truthy/falsy; a colour name ("red"/"amber") lights
+        # the pill in that colour instead of its default (the lambda pill)
         for key, pill in self.pills.items():
             val = self._active.get(key, False)
             on = bool(val) and (not pill.blinks or self._blink_on or self._demo_chase)
-            pill.set_lit(on, val if isinstance(val, tuple) else None)
+            pill.set_lit(on, PILL_COLORS[val] if isinstance(val, str) else None)

@@ -9,24 +9,28 @@ Item {
     id: dial
     property real rpm: 0          // live value from the layout
     property string gearLabel: "N"
-    readonly property real maxValue: 8000
-    readonly property real start: -160    // 0 at ~6:40 (0 = top, +ve clockwise)
-    readonly property real sweep: 245
-    readonly property real hubR: 128
-    readonly property real outer: 190 + 128 / 2   // RING_R + RING_W/2
+    // geometry from the shared dial_spec (via the bridge), same numbers the
+    // Kivy dial and the Python RingItem use
+    readonly property var spec: sensors.dial
+    readonly property real maxValue: spec.maxRpm
+    readonly property real start: spec.start      // 0 at ~6:40 (0 = top, +ve cw)
+    readonly property real sweep: spec.sweep
+    readonly property real hubR: spec.hubR
+    readonly property real outer: spec.outer
 
     width: 600
     height: 600
 
-    // startup self-test sweep, then live (timing from big_dial.py)
+    // startup self-test sweep, then live (shared intro spec via the bridge)
+    readonly property var intro: sensors.intro
     property real introRpm: 0
     property bool introDone: false
     SequentialAnimation {
         running: true
-        PauseAnimation { duration: 2500 }
-        NumberAnimation { target: dial; property: "introRpm"; to: dial.maxValue; duration: 700; easing.type: Easing.OutCubic }
-        PauseAnimation { duration: 700 }
-        NumberAnimation { target: dial; property: "introRpm"; to: 0; duration: 700; easing.type: Easing.OutCubic }
+        PauseAnimation { duration: dial.intro.pause }
+        NumberAnimation { target: dial; property: "introRpm"; to: dial.maxValue; duration: dial.intro.sweep; easing.type: Easing.OutCubic }
+        PauseAnimation { duration: dial.intro.dialHold }
+        NumberAnimation { target: dial; property: "introRpm"; to: 0; duration: dial.intro.back; easing.type: Easing.OutCubic }
         ScriptAction { script: dial.introDone = true }
     }
 
@@ -99,8 +103,8 @@ Item {
         model: 9
         delegate: Text {
             readonly property real th: (dial.start + (index / 8) * dial.sweep) * Math.PI / 180
-            x: dial.width / 2 + 236 * Math.sin(th) - width / 2
-            y: dial.height / 2 - 236 * Math.cos(th) - height / 2
+            x: dial.width / 2 + dial.spec.numR * Math.sin(th) - width / 2
+            y: dial.height / 2 - dial.spec.numR * Math.cos(th) - height / 2
             text: index
             font.family: Theme.fontBold
             font.bold: true

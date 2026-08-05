@@ -15,22 +15,12 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, Ellipse, Line, PushMatrix, PopMatrix, Rotate
 from kivy.clock import Clock
 
-START = -160.0        # 0 at ~6:40 (Kivy angles: 0=top, +ve clockwise)
-SWEEP = 245.0         # numbers 0..8 span this; the rest is the bottom-right gap
-EXT = 14.0            # ring extends this many degrees past 0 and 8
-
-RING_R = 190          # ring centreline radius
-RING_W = 128          # ring thickness (wide — fills from the hub to the rim)
-NUM_R = 236           # numbers sit near the outer edge of the ring band
-HUB_R = 128           # big black hub (holds the gear) — ~half the outer radius
-SEGS = 500            # angular segments across the number span (fade smoothness)
-FADE_RPM = 700        # rpm over which the whole trail switches cyan -> red
+from dial_spec import (START, SWEEP, EXT, RING_R, RING_W, NUM_R, HUB_R, SEGS,
+                       REDLINE_RPM, WHITE, hue, lerp4)
+from decisions import (INTRO_PAUSE_MS, INTRO_SWEEP_MS, INTRO_DIAL_HOLD_MS)
 
 NUM_FONT = "fonts/Compagnon-Medium.otf"   # same font as the side tiles
 
-WHITE = (0.97, 0.985, 1.0, 1.0)   # ring above the needle / faded tail
-CYAN = (0.05, 0.80, 1.0, 1.0)     # colour just behind the needle
-RED = (0.98, 0.26, 0.05, 1.0)     # colour in the redline
 FACE = (0.0, 0.0, 0.0, 1.0)
 RIM_DOT = (0.36, 0.40, 0.47, 1.0)
 NUM_COL = (0.05, 0.07, 0.10, 1.0)
@@ -39,24 +29,13 @@ NEEDLE_COL = (0.04, 0.04, 0.05, 1.0)
 NEEDLE_EDGE = (1.0, 1.0, 1.0, 0.92)
 GEAR_COL = (0.98, 0.99, 1.0, 1.0)
 
-# redline transition keyframes (see _hue): cyan brightens to pale gold, then
-# ignites through orange to red. A direct cyan->red lerp muddies to grey-brown,
-# and a white bridge vanishes against the white ring — gold stays visible.
-PALE_GOLD = (1.0, 0.85, 0.45, 1.0)
-ORANGE = (1.0, 0.55, 0.02, 1.0)
-HUE_STOPS = [(0.0, CYAN), (0.35, PALE_GOLD), (0.7, ORANGE), (1.0, RED)]
-
-INTRO_SWEEP_AT = 2.5
-INTRO_RESET_AT = 3.9
-
-
-def _lerp(a, b, t):
-    return tuple(a[j] + (b[j] - a[j]) * t for j in range(4))
+INTRO_SWEEP_AT = INTRO_PAUSE_MS / 1000
+INTRO_RESET_AT = (INTRO_PAUSE_MS + INTRO_SWEEP_MS + INTRO_DIAL_HOLD_MS) / 1000
 
 
 class BigDial(Widget):
     def __init__(self, max_value=8000, ticks=9, label_map=None, shift_from=6000,
-                 redline_from=5000, **kwargs):
+                 redline_from=REDLINE_RPM, **kwargs):
         super().__init__(**kwargs)
         self.max_value = max_value
         self.ticks = ticks
@@ -136,16 +115,6 @@ class BigDial(Widget):
         Clock.schedule_once(lambda _: self.update_value(max_value, False), INTRO_SWEEP_AT)
         Clock.schedule_once(lambda _: self.update_value(0), INTRO_RESET_AT)
 
-    def _hue(self, rpm):
-        if rpm <= self.redline_from:
-            return CYAN
-        t = min(1.0, (rpm - self.redline_from) / FADE_RPM)
-        # keyframed blend through pale gold and orange (see HUE_STOPS).
-        for (t0, c0), (t1, c1) in zip(HUE_STOPS, HUE_STOPS[1:]):
-            if t <= t1:
-                return _lerp(c0, c1, (t - t0) / (t1 - t0))
-        return RED
-
     def update_value(self, v, update_label=True):
         self.value = max(0.0, min(v, self.max_value))
 
@@ -159,9 +128,9 @@ class BigDial(Widget):
         self._disp += (self.value - self._disp) * min(1.0, 8.0 * dt)
         n = max(self._disp, 1.0)
         self._needle_rot.angle = -(START + (self._disp / self.max_value) * SWEEP)
-        hue = self._hue(self._disp)                    # whole trail hue from the RPM
+        trail = hue(self._disp, self.redline_from)     # whole trail hue from the RPM
         for c, rpm_s in self._segs:
             if rpm_s <= 0 or rpm_s > self._disp:       # margins / above needle: white
                 c.rgba = WHITE
             else:                                      # behind the needle: fade
-                c.rgba = _lerp(WHITE, hue, rpm_s / n)
+                c.rgba = lerp4(WHITE, trail, rpm_s / n)
