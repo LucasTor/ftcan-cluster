@@ -9,6 +9,21 @@ import math
 
 CYCLE = 15.0  # seconds per loop
 
+# Fake now-playing rotation so the bench also exercises the media toast and
+# the map's NowPlaying: late-80s rock a '92 Gol would actually be playing
+# (Engenheiros and Nenhum de Nós are gaúcho bands, matching the baked map).
+# Each entry "plays" for TRACK_S seconds — short enough that the toast shows
+# up regularly on the bench.
+TRACK_S = 45.0
+PLAYLIST = [
+    ("Infinita Highway", "Engenheiros do Hawaii", "A Revolta dos Dândis"),
+    ("Tempo Perdido", "Legião Urbana", "Dois"),
+    ("O Astronauta de Mármore", "Nenhum de Nós", "Cardume"),
+    ("Sonífera Ilha", "Titãs", "Cabeça Dinossauro"),
+]
+# Defer to bt_media_helper while it has seen a real phone this recently.
+BT_REAL_HOLDOFF = 3.0
+
 
 class DemoFeed:
     """Feeds the simulation into a ``SensorState`` while no CAN is present.
@@ -16,11 +31,14 @@ class DemoFeed:
     Writes only engine/CAN-derived fields (not GPIO inputs) directly into the
     state — bypassing ``update()`` so it doesn't reset the CAN-activity clock.
     Real CAN frames take over automatically the moment they arrive. Both UI
-    builds drive this from their render tick.
+    builds drive this from their render tick. Also rotates the fake
+    ``PLAYLIST`` through the Bluetooth media fields — unless a real phone is
+    connected (``state.since_bt()`` fresh), which always wins.
     """
 
     def __init__(self):
         self._t0 = None  # monotonic time the demo loop engaged
+        self._media_owned = False  # we wrote the media fields (vs a real phone)
 
     def feed(self, state, now):
         """Write simulated values for ``now`` and return the demo elapsed time
@@ -40,10 +58,44 @@ class DemoFeed:
         state.fuel_level = vals["fuel"]
         state.egt1, state.egt2, state.egt3, state.egt4 = (
             vals["egt1"], vals["egt2"], vals["egt3"], vals["egt4"])
+        self._feed_media(state, t)
         return t
 
-    def reset(self):
+    def _feed_media(self, state, t):
+        if state.since_bt() < BT_REAL_HOLDOFF:
+            self._media_owned = False  # a real phone owns the fields now
+            return
+        title, artist, album = PLAYLIST[int(t / TRACK_S) % len(PLAYLIST)]
+        self._media_owned = True
+        state.bt_connected = True
+        state.bt_device = "DEMO"
+        state.track_title = title
+        state.track_artist = artist
+        state.track_album = album
+        state.track_status = "playing"
+        state.track_position_s = t % TRACK_S
+        state.track_duration_s = TRACK_S
+        state.track_art_path = ""  # demo has no cover; the placeholder shows
+
+    def _clear_media(self, state):
+        state.bt_connected = False
+        state.bt_device = ""
+        state.track_title = ""
+        state.track_artist = ""
+        state.track_album = ""
+        state.track_status = ""
+        state.track_position_s = 0.0
+        state.track_duration_s = 0.0
+        state.track_art_path = ""
+
+    def reset(self, state=None):
+        if self._t0 is None:
+            return  # called every live-CAN frame; only act on the transition
         self._t0 = None
+        # the fake track must not linger once real CAN takes over
+        if self._media_owned and state is not None:
+            self._clear_media(state)
+        self._media_owned = False
 
 
 def _lerp(a, b, k):

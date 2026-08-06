@@ -6,8 +6,10 @@ Same architecture as the Kivy app: the CAN/GPIO/GPS reader threads write into
 what changed. Every property has its own change signal and ``tick()`` emits
 only the ones whose value actually moved, so a steady sensor costs no QML
 binding re-evaluations. All *decision* logic lives in the shared ``decisions``
-module (tell-tale states incl. the boot bulb check, critical alarms, the
-thresholds) plus ``demo``/``gesture``; QML is presentation only.
+module (tell-tale states incl. the boot bulb check, the thresholds, the media
+toast) plus ``demo``/``gesture``; QML is presentation only. Unlike the Kivy
+build there is no bottom alarm banner — the critical alarms blink in the
+tell-tale row (owner's call, 2026-08-05).
 
 Run standalone (self-animates via the no-CAN demo + mock GPS) or through
 ``start_cluster_qml.py`` for the full reader-thread setup.
@@ -30,8 +32,8 @@ from PySide6.QtQuick import QQuickView
 import dial_spec
 from decisions import (LAYOUT_NAMES, NO_CAN_DEMO_DELAY, RENDER_START_DELAY,
                        INTRO_PAUSE_MS, INTRO_SWEEP_MS, INTRO_GAUGE_HOLD_MS,
-                       INTRO_DIAL_HOLD_MS, INTRO_RETURN_MS,
-                       PILLS, BulbCheck, compute_alarms, compute_pills,
+                       INTRO_DIAL_HOLD_MS, INTRO_RETURN_MS, MEDIA_ART_ICON,
+                       PILLS, BulbCheck, MediaToast, compute_pills,
                        startup_index, wifi_connected)
 from model import SensorState
 from demo import DemoFeed
@@ -81,12 +83,32 @@ class SensorBridge(QObject):
     gear_labelChanged = Signal()
     gear_label = Property(str, lambda s: str(s._state.gear_label),
                           notify=gear_labelChanged)
+    track_titleChanged = Signal()
+    track_title = Property(str, lambda s: str(s._state.track_title),
+                           notify=track_titleChanged)
+    track_artistChanged = Signal()
+    track_artist = Property(str, lambda s: str(s._state.track_artist),
+                            notify=track_artistChanged)
+    track_art_pathChanged = Signal()
+    track_art_path = Property(str, lambda s: str(s._state.track_art_path),
+                              notify=track_art_pathChanged)
+    bt_connectedChanged = Signal()
+    bt_connected = Property(bool, lambda s: bool(s._state.bt_connected),
+                            notify=bt_connectedChanged)
+    # media toast (decisions.MediaToast runs in tick(); QML just renders)
+    toast_alphaChanged = Signal()
+    toast_alpha = Property(float, lambda s: s._toast_alpha,
+                           notify=toast_alphaChanged)
+    toast_line1Changed = Signal()
+    toast_line1 = Property(str, lambda s: s._toast_line1,
+                           notify=toast_line1Changed)
+    toast_line2Changed = Signal()
+    toast_line2 = Property(str, lambda s: s._toast_line2,
+                           notify=toast_line2Changed)
     nightChanged = Signal()
     night = Property(bool, lambda s: bool(s._state.night), notify=nightChanged)
     liveChanged = Signal()
     live = Property(bool, lambda s: s._live, notify=liveChanged)
-    alarmsChanged = Signal()
-    alarms = Property('QVariantList', lambda s: s._alarms, notify=alarmsChanged)
     pill_activeChanged = Signal()
     pill_active = Property('QVariantMap', lambda s: s._pill_active,
                            notify=pill_activeChanged)
@@ -102,6 +124,7 @@ class SensorBridge(QObject):
     dial = Property('QVariantMap', lambda s: dict(dial_spec.QML_SPEC),
                     constant=True)
     intro = Property('QVariantMap', lambda s: dict(_INTRO_QML), constant=True)
+    media_art_icon = Property(int, lambda s: MEDIA_ART_ICON, constant=True)
 
     active_layout = Property(int, lambda s: s._active_layout,
                              notify=layoutChanged)
@@ -112,8 +135,11 @@ class SensorBridge(QObject):
         self._active_layout = startup_index(LAYOUT_NAMES)
         self._flash_hold = FlashHold()
         self._demo = DemoFeed()
+        self._media_toast = MediaToast()
+        self._toast_alpha = 0.0
+        self._toast_line1 = ""
+        self._toast_line2 = ""
         self._live = False
-        self._alarms = []
         self._pill_active = {}
         self._pill_chase = False
         self._wifi = False
@@ -160,10 +186,13 @@ class SensorBridge(QObject):
             if state.since_can() > NO_CAN_DEMO_DELAY:
                 demo_t = self._demo.feed(state, now)
             else:
-                self._demo.reset()
+                self._demo.reset(state)
                 demo_t = None
             self._set_pills(state, demo_t)
-            self._alarms = compute_alarms(state)
+            self._toast_alpha, self._toast_line1, self._toast_line2 = \
+                self._media_toast.sample(now, state.bt_connected,
+                                         state.bt_device, state.track_title,
+                                         state.track_artist)
 
         self._emit_changes()
 
@@ -180,8 +209,14 @@ class SensorBridge(QObject):
                         ("night", bool(state.night)),
                         ("live", self._live),
                         ("pill_chase", self._pill_chase),
-                        ("alarms", self._alarms),
-                        ("pill_active", self._pill_active)):
+                        ("pill_active", self._pill_active),
+                        ("track_title", str(state.track_title)),
+                        ("track_artist", str(state.track_artist)),
+                        ("track_art_path", str(state.track_art_path)),
+                        ("bt_connected", bool(state.bt_connected)),
+                        ("toast_alpha", self._toast_alpha),
+                        ("toast_line1", self._toast_line1),
+                        ("toast_line2", self._toast_line2)):
             if v != prev.get(name):
                 prev[name] = v
                 getattr(self, name + "Changed").emit()

@@ -11,7 +11,9 @@ from a **FuelTech ECU over CAN (FTCAN 2.0)** and switch inputs over **GPIO**. UI
 (modelled on a Claude Design mockup, "Painel Gol Minimal").
 
 There is also a **complete QML/Qt Quick twin of the UI** (see "The QML build" below) —
-same backend, parallel view layer, not yet deployed to the Pi.
+same backend, parallel view layer. **As of 2026-08-06 the QML build IS what runs on the
+car** (launcher → `start_cluster_qml.py` under Qt eglfs); the Kivy launcher is preserved
+at `/usr/local/bin/start-can-cluster.sh.kivy` as the rollback path.
 
 ## The deployment is the tricky part — read this
 
@@ -40,7 +42,8 @@ same backend, parallel view layer, not yet deployed to the Pi.
 ## You cannot see the screen — how to verify
 
 - The app runs headless via systemd `can-cluster.service` → `/usr/local/bin/start-can-cluster.sh`
-  → `poetry run python start_cluster.py`. Confirm health with the journal (you're in the
+  → `poetry run python start_cluster_qml.py` (QML build since 2026-08-06; the Kivy
+  launcher is preserved at `start-can-cluster.sh.kivy`). Confirm health with the journal (you're in the
   `systemd-journal` group, no sudo): `./logs.sh`, `./logs.sh gpio`, `./logs.sh 100`.
   "Service active, 0 restarts, no traceback, reached `Start application main loop`" = it built
   all widgets and is running.
@@ -176,6 +179,81 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
   PARKING_BRAKE=5`; `B=20, D=19, E=26` still unknown. `PARKING_BRAKE` → BRAKE pill, `HIGH_BEAM` →
   HIGH pill, `CHOKE` → BOOSTER pill, indicators → ◄ ► arrows. **CHOKE is active-high** — it's in
   `gpio_helper.INVERTED`, so its reading is inverted vs. the active-low default of the other pins.
+- **Bluetooth audio + now-playing (stage 1, 2026-08-05 — code written, Pi NOT provisioned,
+  no widget yet, layout TBD):** the iPhone as A2DP source. Audio: bluez-alsa → ALSA (never
+  touches Python). Metadata: `bt_media_helper.py` polls bluetoothd's `org.bluez.MediaPlayer1`
+  via `busctl --json` at 1 Hz (zero new deps; pure parser `parse_managed_objects` is
+  fixture-tested) into new `SensorState` fields `bt_connected/bt_device/track_*` — direct
+  field writes like GPS, never `state.update()`. Run `poetry run python bt_media_helper.py`
+  on the Pi as a live monitor. To provision: `sudo tools/setup_bluetooth.sh [pcm]` then
+  `tools/bt_pair.sh`, BOTH during a `--rw` window with internet — **pairing keys in
+  `/var/lib/bluetooth` are tmpfs under overlayroot**, so pairing while read-only evaporates
+  at power-off. Audio out needs a USB/I2S DAC (Pi 5 has no analog jack; until then the PCM
+  default lands on HDMI). **Cover art: WORKING (verified on the car with the owner's
+  iPhone 2026-08-06). PERMANENT since 2026-08-06: `tools/pi/make_permanent.sh` was
+  executed on the real disk (docs/permanent-deploy.md is the runbook) — phone paired
+  as trusted under the new stack, alias "Gol 🚙💨" stored, all of it verified surviving
+  a reboot into read-only mode.** The recipe it implements (for future reference /
+  re-provisioning):
+  1. Build **BlueZ 5.87** (kernel.org tarball) with **`tools/pi/patch_bluez_cover_art.py`
+     applied first** — per AVRCP 1.6.2 a target only returns the cover-art handle when
+     *specifically* requested, so stock BlueZ (which sends count-0 "all attributes")
+     never receives an ImgHandle, on BOTH request paths: `avrcp_get_element_attributes`
+     AND `avrcp_get_item_attributes` (the browsing-channel one — that's what actually
+     runs on track change for browsing players like iPhones). Configure:
+     `--prefix=/usr/local --disable-manpages --disable-systemd --enable-experimental
+     --disable-mesh --disable-btpclient`; build deps: build-essential pkg-config
+     libglib2.0-dev libdbus-1-dev libudev-dev libical-dev libreadline-dev.
+  2. `bluetoothd` must run with **`-E`** (ImgHandle is experimental) via a **systemd
+     override of bluetooth.service ExecStart** — a manually-started daemon gets
+     silently replaced by the distro 5.66 one through D-Bus activation of org.bluez.
+     The /usr/local build reads `/usr/local/etc/bluetooth/main.conf` (copy ours there)
+     and stores at `/usr/local/var/lib/bluetooth` — **symlink it to
+     /var/lib/bluetooth** or pairings "vanish".
+  3. `obexd -n --system-bus` (5.80+ flag) + a D-Bus policy file allowing root to own
+     `org.bluez.obex` on the system bus (`/etc/dbus-1/system.d/obex.conf`).
+  4. **Clean re-pair after changing our SDP record** (the 5.87 controller record
+     advertises cover art; 5.66's didn't): delete
+     `/var/lib/bluetooth/<adapter>/cache/<phone-mac>` AND forget on the iPhone —
+     both sides cache SDP. Symptom of staleness: no ImgHandle ever appears.
+  5. iPhone specifics handled in `bt_media_helper._ArtFetcher`: the cover-art OBEX
+     PSM exists only inside the AVRCP target record (obexd's own SDP search for an
+     Imaging 0x111A record fails with "Unable to find service record" — which is ALSO
+     its error for a failed L2CAP connect, beware) so CreateSession gets an explicit
+     `PSM` parsed from BlueZ's SDP cache file; and iOS only includes ImgHandle in
+     metadata once the BIP session is CONNECTED, so the fetcher "primes" the session
+     eagerly on connect (with retry — the cache file is mid-rewrite right at connect).
+  6. **obexd destroys a client session the moment its creating D-Bus connection
+     drops** — one-shot busctl calls can NEVER hold a session. `_ArtFetcher` keeps a
+     persistent dbus-python SystemBus connection (`apt install python3-dbus`; the
+     poetry venv reaches it via `/usr/lib/python3/dist-packages` — same cp311 ABI).
+  7. Pairing agent: scripted `bluetoothctl` is a trap (it auto-registers a
+     KeyboardDisplay agent asynchronously; passkey-confirm prompts then time out
+     unanswered → iPhone shows "pairing failed"). Use `bt-agent -c NoInputNoOutput`
+     (apt: bluez-tools). Update setup_bluetooth.sh/bt_pair.sh accordingly for the
+     permanent deploy.
+  8. BlueZ 5.87 nests players at `.../dev_XX/avrcp/player0` (5.66: `.../dev_XX/player0`)
+     — anything deriving the device path from the player path must handle both
+     (`bt_media_helper._DEV_RE`).
+  **Display (QML build ONLY, owner's call — the Kivy build has no media UI):** a transient
+  bottom-centre toast on track change / phone connect (`qml/MediaToast.qml`; envelope +
+  lines from `decisions.MediaToast`, driven via bridge `toast_*` props; hidden while the
+  alarm banner is up and on the map layout) plus a persistent top-left now-playing on the
+  map (`qml/NowPlaying.qml` — top-left is inside the fog band, always solid background).
+  Both show an MDI "disc" placeholder in the art square (`decisions.MEDIA_ART_ICON`)
+  when a track has no art. **Track transitions are ATOMIC (owner's call):**
+  `bt_media_helper._TrackPresenter` holds the old title/artist/art on screen until the
+  new track's metadata has been stable for a full poll AND its cover has downloaded,
+  then swaps everything at once — because iOS pushes Track updates staggered (ImgHandle
+  first, often under the old title, then the title with a *reissued* handle), and
+  reacting per-push flashed placeholders and double-fetched art. Rapid skipping holds
+  the display until skipping stops. Fetched JPEGs are validated end-to-end
+  (`_jpeg_complete` — aborted OBEX transfers leave truncated files that render as
+  visible garbage). Screenshot-verified on the Mac 2026-08-05. **Demo mode also
+  plays a fake playlist** (`demo.PLAYLIST`, 45 s/track, device "DEMO") so the bench
+  exercises the media UI; ownership rules: a real phone always wins (`state.since_bt()`
+  stamped by the helper, which itself writes only on change), and `DemoFeed.reset(state)`
+  clears a demo-owned track when real CAN returns — mind those if touching either side.
 - A **plymouth VW-logo boot splash** was attempted and **fully reverted** (couldn't get the logo
   to composite without seeing the screen; logo went off-screen). Boot logs are back to normal.
   `vw-logo.avif` is kept in the repo. If retrying, prefer a built-in plymouth image theme over a
@@ -184,10 +262,16 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
 ## The QML build (parallel UI, 2026-08-04)
 
 A full Qt Quick port of the cluster lives alongside the Kivy one — same three layouts
-(street / detail / map), tell-tales incl. bulb check, alarms, intro sweeps, demo mode,
-flash-and-hold gesture. **The Kivy build is untouched and remains what runs on the
-car.** The QML build is verified on the Mac (screenshot parity) but **not yet deployed
-to the Pi**. It also goes beyond the Kivy build in three deliberate ways: layouts
+(street / detail / map), tell-tales incl. bulb check, intro sweeps, demo mode,
+flash-and-hold gesture. (The Kivy build's bottom alarm banner was **removed from the QML
+build** 2026-08-05, owner's call — the critical alarms already blink in the tell-tale
+row; `AlarmBar.qml` deleted, `alarms` dropped from the bridge. The map HUD also lost its
+coords readout, and gained the top-left NowPlaying.) **DEPLOYED 2026-08-06: the QML
+build is now the car's boot service** (installed by `tools/pi/make_permanent.sh`;
+launcher env: eglfs + `tools/pi/eglfs_kms.json` → /dev/dri/card1, `QSG_RENDER_LOOP=basic`,
+`CAN_DEBUG=false`; map redraw ~2 ms/frame on the Pi). The Kivy build stays in the repo
+as the fallback — `start-can-cluster.sh.kivy` on the Pi restores it. The QML build
+goes beyond the Kivy build in three deliberate ways: layouts
 switch via an infinite vertical carousel slide (300 ms; every switch slides up — a
 continuous `carouselPos` only ever advances and slots sit at wrapped offsets), the view
 runs 4x MSAA, and night mode is **palette-level** instead of the Kivy black veil —
@@ -237,12 +321,30 @@ take a `dim` property since their colours never pass through QML).
   occlude the test window (compositor artifact — looked like truncated geometry, cost
   a long debug session; re-run with the window unobstructed before believing a bad
   grab). Irrelevant on the Pi (eglfs fullscreen, no compositor).
-- **Deploying would need (not done):** PySide6-Essentials==6.7.3 in the poetry env on
-  the Pi (needs `--rw` + internet), a launcher pointing at `start_cluster_qml.py`, Qt
-  `eglfs` platform (`QT_QPA_PLATFORM=eglfs`, likely a KMS config for the non-CEA
-  1920×720 mode), `QSG_RENDER_LOOP=basic`, and eyes-on-screen the first boot — eglfs
-  bring-up shows healthy logs even when the display is black, so keep the Kivy
-  launcher as fallback.
+- **Pi bring-up REHEARSED 2026-08-05, made PERMANENT 2026-08-06** (via
+  `tools/pi/make_permanent.sh`). The rehearsal: the QML build ran 30 s on the car's panel under eglfs
+  with zero Qt errors, live ECU CAN flowing, all reader threads healthy, Kivy service
+  restored after. The verified recipe (redo all of this in `--rw` to make it stick):
+  1. `pip install PySide6-Essentials==6.7.3` into root's poetry venv
+     (`/root/.cache/pypoetry/virtualenvs/can-cluster-jqod14ML-py3.11`; the
+     manylinux_2_31 wheel installs fine on bookworm glibc 2.36).
+  2. `apt-get install libfontconfig1 libxkbcommon0 libinput10` — Qt needs these and
+     the Kivy/SDL stack never pulled them in (first failure mode: libfontconfig).
+  3. **The PySide6 wheel omits `libQt6EglFsKmsGbmSupport.so.6`** (manylinux forbids
+     linking libgbm), which breaks the whole eglfs_kms integration ("Failed to load
+     EGL device integration eglfs_kms"). Fix: copy `tools/pi/
+     libQt6EglFsKmsGbmSupport.so.6.7.3` (kept in-repo; extracted from official Qt
+     6.7.3 linux_arm64 qtbase via `aqt install-qt linux_arm64 desktop 6.7.3
+     --archives qtbase`) into the wheel's `PySide6/Qt/lib/` + symlink `.so.6` — the
+     plugin's rpath then finds it. Same-version official Qt, so the private ABI matches.
+  4. **KMS device must be `/dev/dri/card1`** (card0 is the v3d render node with no
+     KMS — default gives "drmModeGetResources failed"). Launcher env:
+     `QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_KMS_CONFIG=<json>` with
+     `{ "device": "/dev/dri/card1" }`, plus `QSG_RENDER_LOOP=basic`, `DEV=false`.
+     The panel's preferred 1920×720 mode is picked automatically — no mode config
+     needed.
+  5. Stop `can-cluster.service` first (it holds the DRM master); keep it as the boot
+     service / fallback until the QML build has eyes-on-screen approval.
 - Fonts: Kivy's "bold" is Compagnon-**Medium** + synthetic bold — QML must use
   `font.bold: true` over Medium. `Compagnon-Bold.otf` is a decorative outline face
   that looks nothing like the cluster's digits; don't use it.

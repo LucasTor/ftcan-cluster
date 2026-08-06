@@ -76,7 +76,7 @@ Item {
     }
 
     // --- HUD: wheel speed (bottom-left; the trusted speed source), compass
-    //     heading (top-right), raw coordinates (bottom-right) ---
+    //     heading (top-right) ---
     Text {
         x: 60; y: 470; width: 320; height: 150
         verticalAlignment: Text.AlignVCenter
@@ -107,15 +107,6 @@ Item {
         font.pixelSize: 26
         color: Theme.labelAccent
     }
-    Text {
-        x: 1452; y: 620; width: 420; height: 22
-        horizontalAlignment: Text.AlignRight
-        verticalAlignment: Text.AlignVCenter
-        text: (sensors.lat || sensors.lon)
-            ? sensors.lat.toFixed(5) + "  " + sensors.lon.toFixed(5)
-            : "NO GPS"
-        font.family: Theme.fontMono
-        font.pixelSize: 17
-        color: Theme.labelDim
-    }
+    // now playing (top-left, inside the horizon fog band)
+    NowPlaying {}
 }

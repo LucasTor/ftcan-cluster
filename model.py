@@ -60,6 +60,17 @@ class SensorState:
     lon: float = 0.0
     heading_deg: float = 0.0     # course over ground, ° clockwise from true north
     gps_speed_kmh: float = 0.0   # ground speed from GPS
+    # Bluetooth media — the paired iPhone's now-playing info over AVRCP
+    # (fed by bt_media_helper; audio itself goes phone -> bluez-alsa -> ALSA)
+    bt_connected: bool = False     # a phone is connected
+    bt_device: str = ""            # the phone's Bluetooth name
+    track_title: str = ""
+    track_artist: str = ""
+    track_album: str = ""
+    track_status: str = ""         # "playing"/"paused"/"stopped" ("" = no player)
+    track_position_s: float = 0.0  # last AVRCP position event — extrapolate while playing
+    track_duration_s: float = 0.0
+    track_art_path: str = ""       # local JPEG of the cover (AVRCP BIP; "" = none)
     # wheel speeds (km/h)
     wheel_speed_fr_kmh: float = 0.0
     wheel_speed_fl_kmh: float = 0.0
@@ -71,6 +82,7 @@ class SensorState:
     def __post_init__(self):
         self._lock = Lock()
         self._last_can = 0.0  # monotonic time of the last CAN frame (0 = never)
+        self._last_bt = 0.0   # monotonic time a real phone was last seen connected
 
     def update(self, values):
         """Merge a partial mapping (e.g. a decoded CAN frame) into the state.
@@ -92,6 +104,17 @@ class SensorState:
         if not self._last_can:
             return float("inf")
         return time.monotonic() - self._last_can
+
+    def stamp_bt(self):
+        """Mark that a real phone is connected right now (bt_media_helper);
+        the demo playlist backs off while this is fresh (see since_bt)."""
+        self._last_bt = time.monotonic()
+
+    def since_bt(self):
+        """Seconds since a real phone was last seen (``inf`` if never)."""
+        if not self._last_bt:
+            return float("inf")
+        return time.monotonic() - self._last_bt
 
 
 _KEY_ALIASES = {"lambda": "lambda_afr"}

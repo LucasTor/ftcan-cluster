@@ -1,7 +1,7 @@
 import QtQuick
 
 // Dashboard host (cluster.py Dashboard): one swappable content layout under
-// the global overlays (tell-tales, night dim, alarm banner). All layouts are
+// the global overlays (tell-tales, night dim, media toast). All layouts are
 // built up front so switching is instant and never re-runs the intro sweeps.
 // The active index lives Python-side (sensors.active_layout) so the stalk
 // flash-and-hold gesture and the bench 'L' key share one code path.
@@ -82,6 +82,8 @@ Rectangle {
     Binding { target: Theme; property: "night"; value: sensors.night }
 
     // global overlays — declared after the layouts so they draw on top
+    // (no bottom alarm banner here: the critical alarms blink in the
+    // tell-tale row — lambda/egt/temp/oil have blinks=true)
     TopAlerts { y: 24 }
-    AlarmBar {}
+    MediaToast {}
 }

@@ -149,7 +149,7 @@ class CarClusterApp(App):
         if self.state.since_can() > NO_CAN_DEMO_DELAY:
             demo_t = self._demo.feed(self.state, time.monotonic())
         else:
-            self._demo.reset()
+            self._demo.reset(self.state)
             demo_t = None
         self.dashboard.update(self.state, demo_t)
 

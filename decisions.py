@@ -166,6 +166,74 @@ class BulbCheck:
         return False, {k: True for k in self.keys}  # all on — blink pills blink
 
 
+# --- Bluetooth media toast ---
+# Transient now-playing overlay along the bottom of every layout. Envelope:
+# fade in, hold, fade out; a retrigger mid-display keeps the alpha continuous
+# and restarts the hold.
+TOAST_FADE_IN_S = 0.25
+TOAST_HOLD_S = 6.0
+TOAST_FADE_OUT_S = 0.6
+
+# MDI "disc" — the album-art placeholder until AVRCP cover art lands (needs
+# BlueZ >= 5.79; see CLAUDE.md "Bluetooth audio" entry)
+MEDIA_ART_ICON = 0xF05EE
+
+
+class MediaToast:
+    """The transient now-playing / connection toast.
+
+    Pure logic (like ``BulbCheck``): feed ``sample()`` every frame and render
+    the returned ``(alpha, line1, line2)``. Fires on a track change
+    (title / artist) and on phone connect (device / "CONNECTED"); hides
+    instantly when the phone drops off.
+    """
+
+    def __init__(self):
+        self._prev_track = None   # (title, artist) last seen (None = unseeded)
+        self._connected = None    # None until the first sample
+        self._t0 = None           # toast start time (None = hidden)
+        self._lines = ("", "")
+
+    def _alpha_at(self, t):
+        if self._t0 is None:
+            return 0.0
+        dt = t - self._t0
+        if dt < TOAST_FADE_IN_S:
+            return dt / TOAST_FADE_IN_S
+        dt -= TOAST_FADE_IN_S + TOAST_HOLD_S
+        if dt < 0:
+            return 1.0
+        if dt < TOAST_FADE_OUT_S:
+            return 1.0 - dt / TOAST_FADE_OUT_S
+        return 0.0
+
+    def _fire(self, t, line1, line2):
+        # start so the fade-in resumes from the current alpha, not from 0
+        self._t0 = t - TOAST_FADE_IN_S * self._alpha_at(t)
+        self._lines = (line1, line2)
+
+    def sample(self, t, connected, device, title, artist):
+        """Toast alpha (0..1) and its two lines for monotonic time ``t``."""
+        if connected != self._connected:
+            was = self._connected
+            self._connected = connected
+            if connected and was is not None:
+                self._fire(t, device or "BLUETOOTH", "CONNECTED")
+            elif not connected:
+                self._t0 = None
+        track = (title, artist)
+        if track != self._prev_track:
+            self._prev_track = track
+            if title:
+                self._fire(t, title, artist)
+        if self._t0 is None:
+            return 0.0, "", ""
+        if t - self._t0 >= TOAST_FADE_IN_S + TOAST_HOLD_S + TOAST_FADE_OUT_S:
+            self._t0 = None
+            return 0.0, "", ""
+        return self._alpha_at(t), self._lines[0], self._lines[1]
+
+
 def wifi_connected():
     """True if any wireless interface is associated/up (read from sysfs)."""
     base = "/sys/class/net"
