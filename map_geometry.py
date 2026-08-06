@@ -29,6 +29,8 @@ from theme import WINDOW_WIDTH
 
 MAP_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         "map_data.json")
+MAP_NAMES = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                         "map_names.json")
 
 # --- projection constants (design space 1920x720, y up) ---
 CX = WINDOW_WIDTH / 2   # car screen anchor x
@@ -157,6 +159,95 @@ class RoadMap:
             if chunks:
                 by_class[cls].extend(chunks)
         return by_class
+
+
+# street-name lookup (map HUD): "on" a road within NAME_ON_M, then held until
+# the nearest trace of that name exceeds NAME_OFF_M; label switches only after
+# NAME_DEBOUNCE consecutive samples agree, so junction crossings and GPS
+# scatter don't flicker it.
+NAME_ON_M = 30.0
+NAME_OFF_M = 45.0
+NAME_CELL = 500.0
+NAME_DEBOUNCE = 2
+
+
+class StreetNamer:
+    """Current-street lookup over the baked name layer (map_names.json).
+
+    Separate data from RoadMap: the render bake strips names, and name lookup
+    tolerates a much coarser simplification. Feed ``sample()`` at a few Hz;
+    it returns the road name to display ('' = off the mapped grid). Cells are
+    inflated by NAME_OFF_M when indexing, so any road within reach of a
+    position is guaranteed listed in that position's single cell.
+    """
+
+    def __init__(self, path=MAP_NAMES):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except OSError:
+            data = {"origin": (0.0, 0.0), "roads": []}
+        self.origin = data["origin"]
+        self._m_per_deg = (111132.95,
+                           111319.49 * math.cos(math.radians(self.origin[0])))
+        self._roads = [(r["n"], r["p"]) for r in data["roads"]
+                       if len(r["p"]) >= 2]
+        self._cells = {}
+        for i, (_name, pts) in enumerate(self._roads):
+            bb = _bbox(pts)
+            for cx in range(int((bb[0] - NAME_OFF_M) // NAME_CELL),
+                            int((bb[2] + NAME_OFF_M) // NAME_CELL) + 1):
+                for cy in range(int((bb[1] - NAME_OFF_M) // NAME_CELL),
+                                int((bb[3] + NAME_OFF_M) // NAME_CELL) + 1):
+                    self._cells.setdefault((cx, cy), []).append(i)
+        self.name = ""
+        self._cand = ""
+        self._cand_n = 0
+
+    def sample(self, lat, lon):
+        """Feed one GPS position; returns the road name to display."""
+        if not self._roads or (lat == 0.0 and lon == 0.0):
+            return self.name
+        m_lat, m_lon = self._m_per_deg
+        e = (lon - self.origin[1]) * m_lon
+        n = (lat - self.origin[0]) * m_lat
+
+        best, best_d2 = "", NAME_OFF_M * NAME_OFF_M
+        cur_d2 = float("inf")
+        for i in self._cells.get((e // NAME_CELL, n // NAME_CELL), ()):
+            name, pts = self._roads[i]
+            d2 = min(_seg_dist2(e, n, a, b) for a, b in zip(pts, pts[1:]))
+            if d2 < best_d2:
+                best, best_d2 = name, d2
+            if name == self.name and d2 < cur_d2:
+                cur_d2 = d2
+
+        if best and best_d2 <= NAME_ON_M * NAME_ON_M:
+            cand = best                     # clearly on a named road
+        elif self.name and cur_d2 <= NAME_OFF_M * NAME_OFF_M:
+            cand = self.name                # drifting, but still near: hold
+        else:
+            cand = ""
+        if cand == self.name:
+            self._cand_n = 0
+        else:
+            self._cand_n = self._cand_n + 1 if cand == self._cand else 1
+            self._cand = cand
+            if self._cand_n >= NAME_DEBOUNCE:
+                self.name = cand
+                self._cand_n = 0
+        return self.name
+
+
+def _seg_dist2(px, py, a, b):
+    """Squared distance from point (px, py) to segment a-b."""
+    ax, ay = a
+    dx, dy = b[0] - ax, b[1] - ay
+    seg2 = dx * dx + dy * dy
+    t = 0.0 if seg2 == 0.0 else max(
+        0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
+    ex, ey = ax + t * dx - px, ay + t * dy - py
+    return ex * ex + ey * ey
 
 
 def clip_depth(local, d_near, d_far):

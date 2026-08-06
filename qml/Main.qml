@@ -86,4 +86,15 @@ Rectangle {
     // tell-tale row — lambda/egt/temp/oil have blinks=true)
     TopAlerts { y: 24 }
     MediaToast {}
+    // GPS wall clock (blank until the first fix) — top-right on every layout,
+    // right-aligned with the map compass below it
+    Text {
+        x: 1612; y: 24; width: 260; height: 30
+        horizontalAlignment: Text.AlignRight
+        verticalAlignment: Text.AlignVCenter
+        text: sensors.clock_text
+        font.family: Theme.fontMono
+        font.pixelSize: 26
+        color: Theme.labelAccent
+    }
 }

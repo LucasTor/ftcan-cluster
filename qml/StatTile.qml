@@ -43,20 +43,23 @@ Rectangle {
             anchors.left: parent.left; anchors.leftMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             text: Number(tile.vmin).toLocaleString(Qt.locale("C"), "g", 6)
-            font.family: Theme.fontMain; font.pixelSize: 14
+            font.family: Theme.fontMain; font.weight: Theme.weightMain
+            font.pixelSize: 14
             color: Theme.d(Qt.rgba(0.90, 0.93, 0.96, 0.95))
         }
         Text {
             anchors.centerIn: parent
             text: tile.unit
-            font.family: Theme.fontMain; font.pixelSize: 13
+            font.family: Theme.fontMain; font.weight: Theme.weightMain
+            font.pixelSize: 13
             color: Theme.d(Qt.rgba(0.62, 0.78, 0.85, 0.85))
         }
         Text {
             anchors.right: parent.right; anchors.rightMargin: 8
             anchors.verticalCenter: parent.verticalCenter
             text: Number(tile.vmax).toLocaleString(Qt.locale("C"), "g", 6)
-            font.family: Theme.fontMain; font.pixelSize: 14
+            font.family: Theme.fontMain; font.weight: Theme.weightMain
+            font.pixelSize: 14
             color: Theme.d(Qt.rgba(0.90, 0.93, 0.96, 0.95))
         }
     }
@@ -65,7 +68,8 @@ Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         y: 21 - height / 2
         text: tile.label
-        font.family: Theme.fontMain; font.pixelSize: 19
+        font.family: Theme.fontMain; font.weight: Theme.weightMain
+        font.pixelSize: 19
         color: Theme.d(Qt.rgba(0.80, 0.84, 0.88, 0.92))
     }
 

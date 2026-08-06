@@ -112,6 +112,7 @@ Item {
             y: gauge.r - gauge.r * 0.66 * Math.cos(a) - height / 2
             text: gauge.labelMap[tickValue] !== undefined ? gauge.labelMap[tickValue] : tickValue
             font.family: Theme.fontMain
+            font.weight: Theme.weightMain
             font.pixelSize: 30
             color: Theme.gaugeNum
         }

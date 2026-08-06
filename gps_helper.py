@@ -27,6 +27,7 @@ Two sources, tried in order:
     naturally instead of snapping.
 """
 
+import calendar
 import glob
 import json
 import math
@@ -157,8 +158,22 @@ def _read_nmea(state, dev):
                 state.gps_speed_kmh = float(f[7] or 0) * 1.852
                 if f[8]:  # course is empty when stationary — keep the last one
                     state.heading_deg = float(f[8])
+                # UTC time (f[1] hhmmss[.sss]) + date (f[9] ddmmyy): the only
+                # true time source on the car (no RTC, no internet). Taken from
+                # A-status sentences only — before a fix the module may report
+                # a firmware-default date.
+                if len(f) > 9 and f[1] and f[9]:
+                    state.gps_time_utc = _rmc_epoch(f[1], f[9])
+                    state.gps_time_mono = time.monotonic()
             except ValueError:
                 continue
+
+
+def _rmc_epoch(hms, dmy):
+    """RMC UTC time (hhmmss[.sss]) + date (ddmmyy) -> epoch seconds."""
+    return calendar.timegm(
+        (2000 + int(dmy[4:6]), int(dmy[2:4]), int(dmy[0:2]),
+         int(hms[0:2]), int(hms[2:4]), 0)) + float(hms[4:] or "0")
 
 
 def _nmea_deg(v, hemi):
@@ -224,6 +239,10 @@ def _mock_drive(state):
         state.lon = lon0 + e / m_lon
         state.heading_deg = heading
         state.gps_speed_kmh = speed_kmh
+        # bench clock: feed system time as the mock "GPS" time (a bench Mac/Pi
+        # has NTP; on the car this path only runs with no module plugged in)
+        state.gps_time_utc = time.time()
+        state.gps_time_mono = time.monotonic()
 
         t += dt
         time.sleep(dt)

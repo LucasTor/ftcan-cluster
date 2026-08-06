@@ -28,7 +28,10 @@ QML = os.path.join(REPO, "qml", "Theme.qml")
 #   night/dim   — the QML palette-level night-mode machinery
 #   accent      — Azul Boreal accent introduced QML-side (theme.py's ACCENT is
 #                 the legacy pre-"Painel Gol" card blue, intentionally unequal)
-SKIP = {"night", "dim", "accent"}
+#   weightMain  — Qt font-matching workaround (all Compagnon faces share one
+#                 family name); Kivy's registered default font is already
+#                 Compagnon-Medium, so it has no constant to mirror
+SKIP = {"night", "dim", "accent", "weightMain"}
 
 NAMED = {"black": (0, 0, 0, 1), "white": (1, 1, 1, 1),
          "transparent": (0, 0, 0, 0)}

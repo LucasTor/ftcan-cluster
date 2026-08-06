@@ -169,6 +169,35 @@ name has no matching field. Then `set_state` maps `io.<field>` → a pill key. T
 
 ## In-flight / TODO
 
+- **Street name + GPS clock (2026-08-06, QML build only, Mac-verified, NOT yet
+  deployed/seen on the car):** map layout shows the current road name bottom-left
+  (under KM/H) and every layout gets a wall clock top-right (Main.qml overlay,
+  right-aligned with the map compass below it). Pieces: `map_names.json` (separate
+  name layer — the render bake strips names; baked by `tools/bake_map_names.py`,
+  needs internet, same origin/projection as map_data), `map_geometry.StreetNamer`
+  (nearest-named-road with ON 30 m / OFF 45 m hysteresis + 2-sample debounce,
+  sampled at ~2 Hz by the bridge), `decisions.clock_text` (UTC-3 hardcoded — RS
+  has no DST since 2019) fed by new `SensorState.gps_time_utc/_mono` stamped from
+  RMC time+date (A-status sentences only; the Pi has no RTC, GPS is the only true
+  time source — clock shows blank until first fix). The mock drive feeds system
+  time so the bench clock runs. Kivy build untouched (reads none of this).
+- **Session peaks (2026-08-06, QML build only, Mac-verified, NOT yet deployed):**
+  `decisions.PeakTracker` (max rpm/boost/speed/EGT since power-on; demo feeds it
+  on the bench but the first real CAN frame after a demo episode resets it) →
+  bridge `peak_*` props → `qml/PeaksTile.qml` in the detail grid's bottom-right
+  corner (1594, 480); LAMBDA moved inward to (1296, 480), **replacing the MAP
+  tile, which duplicated BOOST** (both bound `layout.boost`).
+  The (700, 480) slot must STAY empty — it's clearance for the big RPM readout's
+  right edge at 4-digit values (a tile there clips the readout).
+- **Odometer: FTCAN 2.0 does NOT broadcast one.** Full DataID table
+  (0x0000–0x02DF) extracted from this repo's spec PDF and checked 2026-08-06 —
+  no total-distance measure exists; closest is `0x01B3 Fuel Total Consumption`
+  (ECU-persisted, has a reset button). Worth one `log_realtime()` run on the car
+  to look for undocumented DataIDs, but don't expect it. Realistic routes: the
+  owner's ESP32 sender integrates wheel speed off the bus and broadcasts a custom
+  DataID (it has flash — survives power cuts, unlike the Pi's overlayroot tmpfs),
+  or a session-only trip counter on the Pi.
+
 - **Fan + 2-step tell-tales:** fed by the tagged-broadcast reader in `can_helper.py`
   (`DATAID_LAUNCH 0x0008` → `two_step`, `DATAID_FAN 0x004D` "ECU Eletro Fan" → `radiator_fan`).
   **Live-verified 2026-07-30:** the real ECU (ProductID 0x5020) broadcasts both — fan observed
@@ -347,7 +376,13 @@ take a `dim` property since their colours never pass through QML).
      service / fallback until the QML build has eyes-on-screen approval.
 - Fonts: Kivy's "bold" is Compagnon-**Medium** + synthetic bold — QML must use
   `font.bold: true` over Medium. `Compagnon-Bold.otf` is a decorative outline face
-  that looks nothing like the cluster's digits; don't use it.
+  that looks nothing like the cluster's digits; don't use it. **Qt trap (found
+  2026-08-06): every Compagnon file reports the same family name ("Compagnon") and
+  Light mislabels its weight as 400/Normal, so `Theme.fontMain` and `Theme.fontLight`
+  are the identical string and a plain `fontMain` request silently renders LIGHT.**
+  Any non-bold `fontMain` text must pair with `font.weight: Theme.weightMain`
+  (600 = exact match on Medium); bold texts already land on Medium via weight 700.
+  Kivy is immune (it registers the Medium *file* as the default font).
 
 ## Conventions
 

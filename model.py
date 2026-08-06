@@ -60,6 +60,9 @@ class SensorState:
     lon: float = 0.0
     heading_deg: float = 0.0     # course over ground, ° clockwise from true north
     gps_speed_kmh: float = 0.0   # ground speed from GPS
+    gps_time_utc: float = 0.0    # UTC epoch seconds from the last RMC (0 = none;
+    gps_time_mono: float = 0.0   # the Pi has no RTC — GPS is the only time source)
+                                 # + time.monotonic() at reception, to extrapolate
     # Bluetooth media — the paired iPhone's now-playing info over AVRCP
     # (fed by bt_media_helper; audio itself goes phone -> bluez-alsa -> ALSA)
     bt_connected: bool = False     # a phone is connected

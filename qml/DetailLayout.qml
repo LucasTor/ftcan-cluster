@@ -97,12 +97,15 @@ Item {
     StatTile { x: 1594; y: 285; label: "ETHANOL"; unit: "%"; vmin: 0; vmax: 100
         decimals: 0; prefix: "E"; value: sensors.ethanol }
 
-    // slot at (700, 480) intentionally empty (gear lives in the dial hub)
+    // slot at (700, 480) stays empty: gear lives in the dial hub, and the big
+    // RPM readout's right edge needs this clearance at 4-digit values
     StatTile { x: 998; y: 480; label: "TPS"; unit: "%"; vmin: 0; vmax: 100
         decimals: 0; value: sensors.tps }
-    StatTile { x: 1296; y: 480; label: "MAP"; unit: "BAR"; vmin: 0; vmax: 3
-        decimals: 2; value: layout.boost }
-    StatTile { x: 1594; y: 480; label: "LAMBDA"; unit: "λ"; vmin: 0.7; vmax: 1.3
+    StatTile { x: 1296; y: 480; label: "LAMBDA"; unit: "λ"; vmin: 0.7; vmax: 1.3
         decimals: 2; warnFn: v => v > 1.05; warnColor: Theme.ttRed
         value: sensors.lambda_afr }
+    // session peaks in the corner slot, replacing the old MAP tile — it
+    // duplicated BOOST (both bound layout.boost, the same number twice on
+    // one screen); LAMBDA moved inward to its place
+    PeaksTile { x: 1594; y: 480 }
 }

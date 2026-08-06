@@ -76,6 +76,13 @@ QtObject {
     readonly property FontLoader _icons: FontLoader { source: "../fonts/materialdesignicons-webfont.ttf" }
     readonly property string fontMono: _mono.name
     readonly property string fontLight: _light.name
+    // Every Compagnon file reports the SAME family name ("Compagnon") and the
+    // Light face mislabels its weight as 400/Normal — so fontMain and
+    // fontLight are the identical string, and a plain fontMain request
+    // resolves to the Light face. Any fontMain text WITHOUT font.bold must
+    // pair with `font.weight: Theme.weightMain` to land on Medium (600);
+    // font.bold: true requests 700 and already matches Medium + synthesis.
+    readonly property int weightMain: Font.DemiBold
     readonly property string fontMain: _medium.name     // Kivy's registered default
     // Kivy's bold=True synthesizes bold over Medium — pair fontMain with
     // font.bold. (Compagnon-Bold.otf is a decorative outline face, NOT what

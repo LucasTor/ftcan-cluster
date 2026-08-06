@@ -93,6 +93,21 @@ Item {
         font.pixelSize: 20
         color: Theme.labelAccent
     }
+    // current street name (from the baked map_names.json layer; fades out
+    // when off the mapped grid) — bottom-right, sharing the compass margin
+    Text {
+        x: 1052; y: 662; width: 820; height: 34
+        horizontalAlignment: Text.AlignRight
+        verticalAlignment: Text.AlignVCenter
+        elide: Text.ElideLeft
+        text: sensors.street_name
+        font.family: Theme.fontMain
+        font.bold: true
+        font.pixelSize: 29
+        color: Theme.text
+        opacity: sensors.street_name ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 350 } }
+    }
     Text {
         x: 1612; y: 60; width: 260; height: 30
         horizontalAlignment: Text.AlignRight

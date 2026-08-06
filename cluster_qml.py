@@ -33,8 +33,9 @@ import dial_spec
 from decisions import (LAYOUT_NAMES, NO_CAN_DEMO_DELAY, RENDER_START_DELAY,
                        INTRO_PAUSE_MS, INTRO_SWEEP_MS, INTRO_GAUGE_HOLD_MS,
                        INTRO_DIAL_HOLD_MS, INTRO_RETURN_MS, MEDIA_ART_ICON,
-                       PILLS, BulbCheck, MediaToast, compute_pills,
-                       startup_index, wifi_connected)
+                       PILLS, BulbCheck, MediaToast, PeakTracker, clock_text,
+                       compute_pills, startup_index, wifi_connected)
+from map_geometry import StreetNamer
 from model import SensorState
 from demo import DemoFeed
 from gesture import FlashHold
@@ -45,6 +46,7 @@ DEV = os.environ.get('DEV', 'true').lower() == 'true'
 
 WIFI_POLL_MS = 3000
 TICK_MS = 33            # ~30 Hz, matching the Kivy render loop
+STREET_EVERY = 15       # street-name lookup every N ticks (~2 Hz is plenty)
 
 # QML-side intro sweep timing (ms), from the shared spec
 _INTRO_QML = {
@@ -105,6 +107,22 @@ class SensorBridge(QObject):
     toast_line2Changed = Signal()
     toast_line2 = Property(str, lambda s: s._toast_line2,
                            notify=toast_line2Changed)
+    peak_rpmChanged = Signal()
+    peak_rpm = Property(float, lambda s: s._peaks.rpm, notify=peak_rpmChanged)
+    peak_boostChanged = Signal()
+    peak_boost = Property(float, lambda s: s._peaks.boost,
+                          notify=peak_boostChanged)
+    peak_speedChanged = Signal()
+    peak_speed = Property(float, lambda s: s._peaks.speed,
+                          notify=peak_speedChanged)
+    peak_egtChanged = Signal()
+    peak_egt = Property(float, lambda s: s._peaks.egt, notify=peak_egtChanged)
+    street_nameChanged = Signal()
+    street_name = Property(str, lambda s: s._street_name,
+                           notify=street_nameChanged)
+    clock_textChanged = Signal()
+    clock_text = Property(str, lambda s: s._clock_text,
+                          notify=clock_textChanged)
     nightChanged = Signal()
     night = Property(bool, lambda s: bool(s._state.night), notify=nightChanged)
     liveChanged = Signal()
@@ -143,6 +161,11 @@ class SensorBridge(QObject):
         self._pill_active = {}
         self._pill_chase = False
         self._wifi = False
+        self._peaks = PeakTracker()
+        self._streets = StreetNamer()
+        self._street_name = ""
+        self._street_tick = 0
+        self._clock_text = ""
         self._prev = {}   # last-emitted value per property (change detection)
 
         # boot bulb check: chase down the row + all-on, timed to end with the
@@ -193,6 +216,12 @@ class SensorBridge(QObject):
                 self._media_toast.sample(now, state.bt_connected,
                                          state.bt_device, state.track_title,
                                          state.track_artist)
+            self._peaks.update(state, demo_t is not None)
+            self._street_tick += 1
+            if self._street_tick >= STREET_EVERY:
+                self._street_tick = 0
+                self._street_name = self._streets.sample(state.lat, state.lon)
+            self._clock_text = clock_text(state, now)
 
         self._emit_changes()
 
@@ -216,7 +245,13 @@ class SensorBridge(QObject):
                         ("bt_connected", bool(state.bt_connected)),
                         ("toast_alpha", self._toast_alpha),
                         ("toast_line1", self._toast_line1),
-                        ("toast_line2", self._toast_line2)):
+                        ("toast_line2", self._toast_line2),
+                        ("street_name", self._street_name),
+                        ("clock_text", self._clock_text),
+                        ("peak_rpm", self._peaks.rpm),
+                        ("peak_boost", self._peaks.boost),
+                        ("peak_speed", self._peaks.speed),
+                        ("peak_egt", self._peaks.egt)):
             if v != prev.get(name):
                 prev[name] = v
                 getattr(self, name + "Changed").emit()

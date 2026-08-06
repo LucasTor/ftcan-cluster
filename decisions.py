@@ -49,6 +49,48 @@ assert (INTRO_PAUSE_MS + INTRO_SWEEP_MS
         + max(INTRO_GAUGE_HOLD_MS, INTRO_DIAL_HOLD_MS)
         + INTRO_RETURN_MS) <= RENDER_START_DELAY * 1000
 
+# --- session peaks ---
+class PeakTracker:
+    """Modern-car 'peak recall': highest rpm / boost / speed / EGT since
+    power-on (session-only — the read-only Pi has nowhere to persist them).
+    The bench demo does feed it so the tile animates, but the first real CAN
+    frame after a demo episode resets the maxima, so a real drive never shows
+    simulated peaks (same ownership rule as the demo media playlist)."""
+
+    def __init__(self):
+        self.reset()
+        self._was_demo = False
+
+    def reset(self):
+        self.rpm = self.boost = self.speed = self.egt = 0.0
+
+    def update(self, state, demo_active):
+        if self._was_demo and not demo_active:
+            self.reset()
+        self._was_demo = demo_active
+        self.rpm = max(self.rpm, state.rpm)
+        self.boost = max(self.boost, state.map)
+        self.speed = max(self.speed, state.wheel_speed_fl_kmh)
+        self.egt = max(self.egt, state.egt1, state.egt2, state.egt3, state.egt4)
+
+
+# --- clock ---
+# The Pi has no RTC and the car no internet, so wall time comes from the GPS
+# RMC sentences (gps_helper stamps gps_time_utc/_mono). RS runs UTC-3 all year
+# (Brazil abolished DST in 2019).
+CLOCK_UTC_OFFSET_H = -3
+
+
+def clock_text(state, now_mono):
+    """Wall clock 'HH:MM' extrapolated from the last GPS fix; '' before one."""
+    if state.gps_time_utc <= 0:
+        return ""
+    t = (state.gps_time_utc + (now_mono - state.gps_time_mono)
+         + CLOCK_UTC_OFFSET_H * 3600)
+    m = int(t // 60) % (24 * 60)
+    return f"{m // 60:02d}:{m % 60:02d}"
+
+
 # --- layouts ---
 LAYOUT_NAMES = ["street", "detail", "map"]
 STARTUP_LAYOUT = os.environ.get("LAYOUT", "street")
